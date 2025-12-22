@@ -1,346 +1,193 @@
-Serverless Cloudflare POS Terminal
+# Serverless Cloudflare POS Terminal
 
+This is a serverless Point of Sale (POS) system built to run on **Cloudflare Workers**. It functions as a lightweight payment terminal that allows an authenticated administrator to generate secure, time-limited payment links (QR codes) for customers.
 
+It integrates with **SindiPay** for payment processing and **Discord** for transaction notifications.
 
-This is a serverless Point of Sale (POS) system built to run on Cloudflare Workers. It functions as a lightweight payment terminal that allows an authenticated administrator to generate secure, time-limited payment links (QR codes) for customers.
+**Powered by SindiPay**
+We are glad to work with SindiPay to provide the payment infrastructure for this project. Their platform offers a robust and easy-to-integrate API for developers.
+👉 [https://sindipay.com/en/](https://sindipay.com/en/)
 
+---
 
+## 🌟 Key Features
 
-It integrates with SindiPay for payment processing and Discord for transaction notifications.
+* **Zero Trust Authentication**
+  Password-protected dashboard using secure, HttpOnly, Strict cookies.
 
+* **Tamper-Proof Links**
+  Uses HMAC-SHA256 signatures to ensure payment links and receipts cannot be forged or altered.
 
+* **Time-Sensitive Security**
 
-Powered by SindiPay: We are glad to work with SindiPay to provide the payment infrastructure for this project. Their platform offers a robust and easy-to-integrate API for developers. Check them out at https://sindipay.com/en/.
+  * Payment Links expire after **30 minutes**
+  * Receipts expire after **48 hours**
 
+* **Responsive UI**
+  Single-file architecture with embedded HTML/CSS, optimized for iOS and mobile devices.
 
+* **Real-time Notifications**
+  Sends transaction status updates directly to a Discord channel.
 
-🌟 Key Features
+---
 
+## ⚙️ Environment Variables (.env)
 
+This worker relies on specific environment variables to function. In Cloudflare Workers, these are stored as **Secrets** or defined in `wrangler.toml`.
 
-Zero Trust Authentication: Password-protected dashboard using secure, HttpOnly, Strict cookies.
+| Variable Name     | Description                                                   | Recommended Security |
+| ----------------- | ------------------------------------------------------------- | -------------------- |
+| TERMINAL_PASSWORD | Password required to log in to the dashboard (`/`)            | Secret (Encrypted)   |
+| WEBHOOK_SECRET    | Random string used for HMAC signatures and webhook validation | Secret (Encrypted)   |
+| API_KEY           | Your SindiPay API key                                         | Secret (Encrypted)   |
+| DISCORD_URL       | Discord Webhook URL for transaction logs                      | Text or Secret       |
 
+### How to set these up
 
+Using the Cloudflare CLI (Wrangler):
 
-Tamper-Proof Links: Uses HMAC-SHA256 signatures to ensure payment links and receipts cannot be forged or altered.
+```bash
+npx wrangler secret put TERMINAL_PASSWORD
+npx wrangler secret put WEBHOOK_SECRET
+npx wrangler secret put API_KEY
+npx wrangler secret put DISCORD_URL
+```
 
+---
 
+## 🚀 Setup & Deployment
 
-Time-Sensitive Security:
+### Prerequisites
 
+* Cloudflare account (Workers are free)
+* Node.js and npm installed
+* Wrangler CLI
 
+```bash
+npm install -g wrangler
+```
 
-Payment Links: Expire after 30 minutes.
+### Installation Steps
 
+#### 1. Clone the repository
 
-
-Receipts: Access expires after 48 hours.
-
-
-
-Responsive UI: Single-file architecture with embedded HTML/CSS, highly optimized for iOS and mobile devices.
-
-
-
-Real-time Notifications: Sends transaction status updates directly to a Discord channel.
-
-
-
-⚙️ Environment Variables (.env)
-
-
-
-This worker relies on specific environment variables to function. In Cloudflare Workers, these are stored as Secrets or defined in wrangler.toml.
-
-
-
-Variable Name
-
-
-
-Description
-
-
-
-Recommended Security
-
-
-
-TERMINAL\_PASSWORD
-
-
-
-The password required to log in to the dashboard (/).
-
-
-
-Secret (Encrypted)
-
-
-
-WEBHOOK\_SECRET
-
-
-
-A random string used to sign URL signatures (HMAC) and validate webhook calls. Do not share this.
-
-
-
-Secret (Encrypted)
-
-
-
-API\_KEY
-
-
-
-Your SindiPay API Key. Used to initiate transactions and check status.
-
-
-
-Secret (Encrypted)
-
-
-
-DISCORD\_URL
-
-
-
-The Discord Webhook URL where transaction logs (success/fail) will be posted.
-
-
-
-Text or Secret
-
-
-
-How to set these up
-
-
-
-If using the Cloudflare CLI (wrangler), run the following commands in your terminal:
-
-
-
-npx wrangler secret put TERMINAL\_PASSWORD
-
-npx wrangler secret put WEBHOOK\_SECRET
-
-npx wrangler secret put API\_KEY
-
-npx wrangler secret put DISCORD\_URL
-
-
-
-
-
-🚀 Setup \& Deployment
-
-
-
-Prerequisites
-
-
-
-Cloudflare Account (Workers are free).
-
-
-
-Node.js and npm installed.
-
-
-
-Wrangler CLI (npm install -g wrangler).
-
-
-
-Installation Steps
-
-
-
-Clone the Repository:
-
-Start by cloning the project code to your local machine.
-
-
-
-git clone \[https://github.com/H190K/posterminal.git](https://github.com/H190K/posterminal.git)
-
+```bash
+git clone https://github.com/H190K/posterminal.git
 cd posterminal
+```
 
+#### 2. Install dependencies
 
-
-
-
-Install Dependencies:
-
-Install the necessary packages.
-
-
-
+```bash
 npm install
+```
 
+#### 3. Configure
 
+Update `wrangler.toml` with your project details if needed.
 
+#### 4. Deploy
 
-
-Configure:
-
-Update wrangler.toml with your specific project details if necessary.
-
-
-
-Deploy:
-
-Push your worker to the Cloudflare network.
-
-
-
+```bash
 npx wrangler deploy
+```
 
+---
 
+## 🔐 Architecture & Security Logic
 
+### 1. Digital Signatures (HMAC)
 
+The system uses `crypto.subtle` to generate **HMAC-SHA256** signatures. This prevents tampering (e.g. changing `?amount=5000` to `?amount=50`).
 
-🔐 Architecture \& Security Logic
+* Any parameter change invalidates the signature
+* Requests with invalid signatures are rejected
+* **Context separation** using prefixes:
 
+  * `PAY-` for payment links
+  * `RCT-` for receipts
 
+A payment signature **cannot** be reused to fake a receipt.
 
-1\. Digital Signatures (HMAC)
+---
 
+### 2. Payment Flow
 
+1. **Admin Login**
 
-The system uses crypto.subtle to generate HMAC-SHA256 signatures. This ensures that a user cannot simply change ?amount=5000 to ?amount=50 in the URL. If the URL parameters change, the signature becomes invalid, and the request is rejected.
+   * Admin visits `/`
+   * Enters `TERMINAL_PASSWORD`
+   * Secure cookie is set
 
+2. **Generate Payment (POST /generate)**
 
+   * Admin enters amount, name, email
+   * Worker creates a signed URL (valid 30 minutes)
+   * QR code page is returned
 
-Context Separation: The code uses prefixes (PAY- vs RCT-) when signing data.
+3. **Payment Request (GET /pay)**
 
+   * Customer scans QR code
+   * Worker verifies:
 
+     * Signature is valid
+     * Link is not older than 30 minutes
+   * Worker creates an order via SindiPay
+   * Customer is redirected to the payment gateway
 
-A signature generated for a Payment Link cannot be used to fake a Receipt.
+4. **Webhook (POST /webhook)**
 
+   * SindiPay sends payment status
+   * Worker verifies `WEBHOOK_SECRET`
+   * Transaction embed is sent to Discord
 
+5. **Success / Receipt (GET /success)**
 
-2\. The Payment Flow
+   * Customer is redirected back
+   * Receipt signature is verified (valid 48 hours)
+   * Status is rechecked with SindiPay
+   * Digital receipt is displayed
 
+---
 
+## 🛠 Troubleshooting
 
-Admin Login: Admin visits /, enters TERMINAL\_PASSWORD. A secure cookie is set.
+* **"Gateway Firewall Block"**
+  Happens when SindiPay returns HTML instead of JSON (usually a firewall challenge). The UI asks the user to wait and retry.
 
+* **"Link Expired"**
+  Payment links expire after 30 minutes. The UI provides a **WhatsApp Merchant** button for resolution.
 
+* **Discord Not Updating**
 
-Generation (POST /generate):
+  * Verify `DISCORD_URL`
+  * Ensure the webhook has permission to post in the channel
 
+---
 
+## 💖 Support the Project
 
-Admin enters Amount, Name, Email.
+Love this project? Here's how you can help:
 
+* 🍴 **Fork it** and extend the POS features
+* 🐛 **Report bugs** or suggest improvements via GitHub Issues
+* 📢 **Share it** with merchants who need a lightweight POS solution
+* ⭐ **Star the repo** to show your support
 
-
-Worker creates a URL with a signature valid for 30 mins.
-
-
-
-Worker returns a QR Code generation page.
-
-
-
-Payment Request (GET /pay):
-
-
-
-Customer scans QR code.
-
-
-
-Worker verifies: Signature is valid AND Link is not older than 30 mins.
-
-
-
-Worker calls SindiPay API to create an order.
-
-
-
-Redirects customer to the Payment Gateway.
-
-
-
-Webhook (POST /webhook):
-
-
-
-SindiPay notifies the worker of payment status.
-
-
-
-Worker verifies the secret param matches env.WEBHOOK\_SECRET.
-
-
-
-Worker sends an embed to Discord.
-
-
-
-Success/Receipt (GET /success):
-
-
-
-Customer is redirected back here.
-
-
-
-Worker verifies the receipt signature (valid for 48 hours).
-
-
-
-Worker double-checks status with SindiPay API.
-
-
-
-Displays a digital receipt that can be shared or emailed.
-
-
-
-🛠 Troubleshooting
-
-
-
-"Gateway Firewall Block": The code detects if SindiPay returns HTML instead of JSON (usually a firewall challenge) and asks the user to wait.
-
-
-
-"Link Expired": If the customer waits longer than 30 minutes to pay, the link dies. The UI provides a "WhatsApp Merchant" button to resolve this.
-
-
-
-Discord Not Updating: Ensure DISCORD\_URL is correct and the bot has permission to post in the channel.
-
-
-
-☕ Support
-
-
-
-If you found this project helpful, consider supporting the development:
-
-
-
-<a href="https://sindipay.com/p/87d1fb71-72e9-466d-a6eb-bb9d31864d41/">
-
-<img src="https://www.google.com/search?q=https://img.shields.io/badge/Support%2520via-SindiPay-0052cc%3Fstyle%3Dfor-the-badge%26logo%3Dwallet%26logoColor%3Dwhite" alt="Support via SindiPay" />
-
-</a>
-
-
+If my projects make your life easier, consider supporting development. Your support helps me create more open-source tools for the community.
 
 <div align="center">
 
+[![Support via SindiPay](https://img.shields.io/badge/💵_Cash_/_Fiat-SindiPay-0052cc?style=for-the-badge\&logo=creditcard\&logoColor=white)](https://sindipay.com/p/87d1fb71-72e9-466d-a6eb-bb9d31864d41/)
 
-
-Built with ❤️ by H190K
-
-
+[![Crypto Donations](https://img.shields.io/badge/Crypto_Donations-NOWPayments-9B59B6?style=for-the-badge\&logo=bitcoin\&logoColor=colored)](https://nowpayments.io/donation?api_key=J0QACAH-BTH4F4F-QDXM4ZS-RCA58BH)
 
 </div>
 
+---
+
+<div align="center">
+
+**Built with ❤️ by [H190K](https://github.com/H190K)**
+
+</div>
