@@ -1,0 +1,39 @@
+{
+  "name": "cloudflare-pos-terminal",
+  "version": "1.0.0",
+  "description": "Serverless POS Terminal built on Cloudflare Workers with SindiPay integration",
+  "main": "index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "test": "wrangler dev --test"
+  },
+  "keywords": [
+    "pos",
+    "payment",
+    "cloudflare",
+    "workers",
+    "serverless",
+    "sindipay",
+    "terminal",
+    "qr-code",
+    "payment-gateway"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/cloudflare-pos-terminal.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/cloudflare-pos-terminal/issues"
+  },
+  "homepage": "https://github.com/yourusername/cloudflare-pos-terminal#readme",
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

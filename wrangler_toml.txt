@@ -1,0 +1,34 @@
+name = "pos-terminal"
+main = "index.js"
+compatibility_date = "2024-01-01"
+
+# Worker configuration
+workers_dev = true
+route = ""
+zone_id = ""
+
+# Account details (add your account ID)
+account_id = ""
+
+# Non-sensitive configuration variables
+# Add these in the Cloudflare dashboard or here
+[vars]
+MERCHANT_NAME = "My Shop"
+MERCHANT_EMAIL = "support@myshop.com"
+MERCHANT_WHATSAPP = "1234567890"
+MERCHANT_LOGO = "https://via.placeholder.com/180x180/000000/FFFFFF/?text=POS"
+
+# Sensitive secrets - set using: npx wrangler secret put SECRET_NAME
+# Do NOT put actual secret values here
+# 
+# Required secrets to set:
+# - TERMINAL_PASSWORD (your dashboard login password)
+# - WEBHOOK_SECRET (random string for HMAC signatures)
+# - API_KEY (your SindiPay API key)
+# - DISCORD_WEBHOOK_URL (optional, for transaction notifications)
+
+[build]
+command = ""
+
+[build.upload]
+format = "service-worker"

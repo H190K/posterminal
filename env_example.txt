@@ -1,0 +1,73 @@
+# ============================================
+# CLOUDFLARE POS TERMINAL - ENVIRONMENT VARIABLES
+# ============================================
+# 
+# IMPORTANT: This is a template file. 
+# DO NOT commit actual secrets to version control.
+# 
+# To set secrets in Cloudflare Workers:
+# npx wrangler secret put VARIABLE_NAME
+#
+# ============================================
+
+# ----------------------------------------
+# REQUIRED SECRETS
+# ----------------------------------------
+
+# Dashboard login password
+# Set with: npx wrangler secret put TERMINAL_PASSWORD
+TERMINAL_PASSWORD=your-secure-password-here
+
+# Random string for HMAC signatures and webhook validation
+# Generate with: openssl rand -hex 32
+# Set with: npx wrangler secret put WEBHOOK_SECRET
+WEBHOOK_SECRET=random-secret-key-here
+
+# Your SindiPay API key
+# Get from: https://sindipay.com/dashboard
+# Set with: npx wrangler secret put API_KEY
+API_KEY=sp_live_xxxxxxxxxxxxxxxx
+
+# ----------------------------------------
+# MERCHANT CONFIGURATION (wrangler.toml)
+# ----------------------------------------
+
+# Your business/merchant name (displayed on receipts)
+MERCHANT_NAME=My Shop
+
+# Contact email for customer support
+MERCHANT_EMAIL=support@myshop.com
+
+# WhatsApp number with country code (no + or spaces)
+# Example: 1234567890 for +1 (234) 567-890
+MERCHANT_WHATSAPP=1234567890
+
+# URL to your logo/icon (180x180px recommended)
+# Leave empty to use default placeholder
+MERCHANT_LOGO=https://example.com/logo.png
+
+# ----------------------------------------
+# OPTIONAL FEATURES
+# ----------------------------------------
+
+# Discord webhook URL for transaction notifications
+# Create at: Discord Server Settings > Integrations > Webhooks
+# Set with: npx wrangler secret put DISCORD_WEBHOOK_URL
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/your-webhook-url
+
+# ----------------------------------------
+# CUSTOMIZATION OPTIONS
+# ----------------------------------------
+
+# Link expiration times (in milliseconds)
+# Default: 30 minutes for payment links
+TIME_PAY_LINK=1800000
+
+# Default: 48 hours for receipt access
+TIME_RECEIPT=172800000
+
+# Payment currency code
+CURRENCY=IQD
+
+# Timezone for timestamps (IANA format)
+TIMEZONE=Asia/Baghdad
