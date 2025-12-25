@@ -2,17 +2,13 @@
 
 <div align="center">
 
-<a href="https://developers.cloudflare.com/workers/"><img src="https://img.shields.io/badge/Cloudflare-Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" /></a>
-<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript"><img src="https://img.shields.io/badge/JavaScript-ES2023-yellow?style=for-the-badge&logo=javascript&logoColor=white" /></a>
-<a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-Runtime-339933?style=for-the-badge&logo=node.js&logoColor=Yellow" /></a>
-<a href="https://sindipay.com/en/"><img src="https://img.shields.io/badge/Payments-SindiPay-0052cc?style=for-the-badge&logo=creditcard&logoColor=white" /></a>
-<a href="https://discord.com/"><img src="https://img.shields.io/badge/Notifications-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" /></a>
+<a href="https://developers.cloudflare.com/workers/"><img src="https://img.shields.io/badge/Cloudflare-Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" /></a> <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript"><img src="https://img.shields.io/badge/JavaScript-ES2023-yellow?style=for-the-badge&logo=javascript&logoColor=white" /></a> <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-Runtime-339933?style=for-the-badge&logo=node.js&logoColor=Yellow" /></a> <a href="https://sindipay.com/en/"><img src="https://img.shields.io/badge/Payments-SindiPay-0052cc?style=for-the-badge&logo=creditcard&logoColor=white" /></a> <a href="https://discord.com/"><img src="https://img.shields.io/badge/Notifications-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" /></a>
 
 </div>
 
 A **zero-infrastructure**, **serverless** Point of Sale (POS) system built to run on **Cloudflare Workers**. This lightweight payment terminal allows authenticated administrators to generate secure, time-limited payment links with QR codes for customers.
 
-**Powered by SindiPay**  
+**Powered by SindiPay**
 We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment infrastructure with an easy-to-integrate API for developers.
 
 ---
@@ -20,15 +16,19 @@ We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment
 ## 🌟 Key Features
 
 ### 🔐 Security
+
 * **Zero Trust Authentication** - Password-protected dashboard with secure, HttpOnly, SameSite=Strict cookies
 * **Tamper-Proof Links** - Uses HMAC-SHA256 digital signatures to ensure payment links and receipts cannot be forged or altered
 * **Time-Sensitive Security**
+
   * Payment Links expire after **30 minutes**
   * Receipts remain accessible for **48 hours**
 * **Context Separation** - Different signature types (PAY/RCT) prevent signature reuse across contexts
 * **Webhook Validation** - Secret-based webhook authentication ensures only legitimate payment notifications are processed
+* **Receipt URL Privacy (v1.1.1)** - Final receipt URLs are **sanitized** (no customer name/email in the browser URL), while still displaying them on the receipt page
 
 ### 💳 Payment Processing
+
 * **SindiPay Integration** - Seamless integration with SindiPay payment gateway
 * **QR Code Generation** - Automatic QR code creation for easy mobile payments
 * **Real-time Verification** - Payment status verification directly with gateway API
@@ -36,6 +36,7 @@ We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment
 * **Multiple Currency Support** - Currently configured for IQD (Iraqi Dinar), easily adaptable
 
 ### 📱 User Experience
+
 * **Responsive Mobile-First UI** - Optimized for iOS and mobile devices with native-like experience
 * **PWA Ready** - Installable as a web app with custom icons and splash screens
 * **Dark Mode Design** - Modern dark theme optimized for OLED displays
@@ -43,12 +44,14 @@ We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment
 * **Error Recovery** - User-friendly error messages with merchant contact options
 
 ### 🔔 Notifications
+
 * **Discord Webhooks** - Real-time transaction notifications to Discord channels
 * **Rich Embeds** - Formatted transaction details with status indicators and POS order IDs
 * **Robust Timestamp Handling** - Supports multiple timestamp formats (Unix, ISO 8601, milliseconds)
 * **Timezone Support** - Timestamps displayed in GMT+3 (Asia/Baghdad timezone, configurable)
 
 ### ⚙️ Customization
+
 * **Branding Support** - Custom merchant name, logo, and contact information
 * **Email Integration** - Optional email receipt functionality
 * **WhatsApp Integration** - Direct customer support via WhatsApp
@@ -58,15 +61,15 @@ We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment
 
 ## 📋 Table of Contents
 
-- [Architecture](#-architecture--security-logic)
-- [Environment Variables](#%EF%B8%8F-environment-variables)
-- [Setup & Deployment](#-setup--deployment)
-- [Usage Guide](#-usage-guide)
-- [Security Features](#-security-features)
-- [API Routes](#-api-routes)
-- [Troubleshooting](#-troubleshooting)
-- [Contributing](#-contributing)
-- [License](#-license)
+* [Architecture](#-architecture--security-logic)
+* [Environment Variables](#%EF%B8%8F-environment-variables)
+* [Setup & Deployment](#-setup--deployment)
+* [Usage Guide](#-usage-guide)
+* [Security Features](#-security-features)
+* [API Routes](#-api-routes)
+* [Troubleshooting](#-troubleshooting)
+* [Contributing](#-contributing)
+* [License](#-license)
 
 ---
 
@@ -82,13 +85,31 @@ The system uses `crypto.subtle` to generate **HMAC-SHA256** signatures:
 ```
 
 **Benefits:**
+
 * Any parameter change invalidates the signature
 * Requests with invalid signatures are automatically rejected
 * Context separation using prefixes prevents signature reuse:
+
   * `PAY-` prefix for payment links (30-minute validity)
   * `RCT-` prefix for receipts (48-hour validity)
 
 A payment link signature **cannot** be reused to fake a receipt, even if stolen.
+
+### Receipt URL Privacy (v1.1.1)
+
+Starting from **v1.1.1**, the **final receipt URL** is sanitized:
+
+* ✅ Receipt URL does **not** expose customer name/email in the query string
+* ✅ Receipt page still shows customer name/email
+* ✅ Discord webhook still receives customer name/email
+
+How it works (stateless):
+
+* Instead of putting `name`/`email` into `/success`, the worker places customer details into an **encrypted token** (for example `c=`) using `WEBHOOK_SECRET`.
+* The receipt signature binds to that token rather than raw PII fields.
+* The `/success` route decrypts the token to render customer details.
+
+> This keeps the project **stateless** (no database) while keeping PII out of the visible URL.
 
 ### Payment Flow
 
@@ -139,16 +160,16 @@ sequenceDiagram
 
 Configure these in Cloudflare Workers as **Secrets** or in `wrangler.toml`:
 
-| Variable Name        | Description                                           | Required | Example                                    |
-|---------------------|-------------------------------------------------------|----------|-------------------------------------------|
-| `TERMINAL_PASSWORD` | Password for dashboard login                          | ✅ Yes   | `your-secure-password-123`                |
-| `WEBHOOK_SECRET`    | Random string for HMAC signatures & webhook auth      | ✅ Yes   | `random-secret-key-xyz789`                |
-| `API_KEY`           | Your SindiPay API key                                 | ✅ Yes   | `sp_live_xxxxxxxxxxxxxxxx`                |
-| `MERCHANT_NAME`     | Your business/merchant name                           | ⚠️ Recommended | `My Shop`                           |
-| `MERCHANT_EMAIL`    | Contact email for customer support                    | ⚠️ Recommended | `support@myshop.com`                |
-| `MERCHANT_WHATSAPP` | WhatsApp number (with country code, no +)             | ⚠️ Recommended | `1234567890`                        |
-| `MERCHANT_LOGO`     | URL to your logo/icon (180x180 recommended)           | ⚪ Optional | `https://example.com/logo.png`      |
-| `DISCORD_WEBHOOK_URL` | Discord webhook URL for notifications               | ⚪ Optional | `https://discord.com/api/webhooks/...` |
+| Variable Name         | Description                                                                                        | Required       | Example                                |
+| --------------------- | -------------------------------------------------------------------------------------------------- | -------------- | -------------------------------------- |
+| `TERMINAL_PASSWORD`   | Password for dashboard login                                                                       | ✅ Yes          | `your-secure-password-123`             |
+| `WEBHOOK_SECRET`      | Random string for HMAC signatures & webhook auth (**also used for receipt URL privacy in v1.1.1**) | ✅ Yes          | `random-secret-key-xyz789`             |
+| `API_KEY`             | Your SindiPay API key                                                                              | ✅ Yes          | `sp_live_xxxxxxxxxxxxxxxx`             |
+| `MERCHANT_NAME`       | Your business/merchant name                                                                        | ⚠️ Recommended | `My Shop`                              |
+| `MERCHANT_EMAIL`      | Contact email for customer support                                                                 | ⚠️ Recommended | `support@myshop.com`                   |
+| `MERCHANT_WHATSAPP`   | WhatsApp number (with country code, no +)                                                          | ⚠️ Recommended | `1234567890`                           |
+| `MERCHANT_LOGO`       | URL to your logo/icon (180x180 recommended)                                                        | ⚪ Optional     | `https://example.com/logo.png`         |
+| `DISCORD_WEBHOOK_URL` | Discord webhook URL for notifications                                                              | ⚪ Optional     | `https://discord.com/api/webhooks/...` |
 
 ### Setting up Environment Variables
 
@@ -250,6 +271,7 @@ Your POS terminal will be live at: `https://my-pos-terminal.your-subdomain.worke
 #### 6. (Optional) Custom Domain
 
 In the Cloudflare Dashboard:
+
 1. Go to Workers & Pages
 2. Select your worker
 3. Go to Settings → Triggers
@@ -262,84 +284,96 @@ In the Cloudflare Dashboard:
 ### For Merchants (Admin)
 
 1. **Access Dashboard**
-   - Navigate to your worker URL
-   - Enter your `TERMINAL_PASSWORD`
-   - You'll be logged in for 2 minutes (Zero Trust)
+
+   * Navigate to your worker URL
+   * Enter your `TERMINAL_PASSWORD`
+   * You'll be logged in for 2 minutes (Zero Trust)
 
 2. **Create Payment Request**
-   - Enter the amount
-   - Optionally add customer name and email
-   - Click "Create Request"
-   - System generates unique POS order ID (POS-xxxxx)
+
+   * Enter the amount
+   * Optionally add customer name and email
+   * Click "Create Request"
+   * System generates unique POS order ID (POS-xxxxx)
 
 3. **Share Payment Link**
-   - Show the QR code to customer
-   - Or use "Share Link" / "Copy Link" buttons
-   - Link expires in 30 minutes
+
+   * Show the QR code to customer
+   * Or use "Share Link" / "Copy Link" buttons
+   * Link expires in 30 minutes
 
 4. **Monitor Transactions**
-   - Check Discord for real-time notifications (if configured)
-   - Each payment triggers an embed with:
-     - POS Order ID (POS-xxxxx)
-     - Transaction timestamp (GMT+3)
-     - Payment status
-     - Customer details
-     - Amount
+
+   * Check Discord for real-time notifications (if configured)
+   * Each payment triggers an embed with:
+
+     * POS Order ID (POS-xxxxx)
+     * Transaction timestamp (GMT+3)
+     * Payment status
+     * Customer details
+     * Amount
 
 ### For Customers
 
 1. **Make Payment**
-   - Scan QR code or open payment link
-   - Redirected to SindiPay payment page
-   - Complete payment using preferred method
+
+   * Scan QR code or open payment link
+   * Redirected to SindiPay payment page
+   * Complete payment using preferred method
 
 2. **View Receipt**
-   - Automatically redirected to receipt page
-   - Receipt shows:
-     - POS Order ID
-     - Transaction date/time (GMT+3)
-     - Payment amount and status
-     - Customer information
-   - Can share or email receipt
-   - Receipt accessible for 48 hours
+
+   * Automatically redirected to receipt page
+   * Receipt shows:
+
+     * POS Order ID
+     * Transaction date/time (GMT+3)
+     * Payment amount and status
+     * Customer information
+   * Can share or email receipt
+   * Receipt accessible for 48 hours
 
 ---
 
 ## 🔒 Security Features
 
 ### Authentication
-- **Zero Trust Model**: 2-minute session timeout
-- **HttpOnly Cookies**: Protected from XSS attacks
-- **Secure Flag**: HTTPS-only transmission
-- **SameSite=Strict**: CSRF protection
+
+* **Zero Trust Model**: 2-minute session timeout
+* **HttpOnly Cookies**: Protected from XSS attacks
+* **Secure Flag**: HTTPS-only transmission
+* **SameSite=Strict**: CSRF protection
 
 ### Link Security
-- **HMAC-SHA256 Signatures**: Cryptographic validation
-- **Timestamp Validation**: Prevents replay attacks
-- **Context Separation**: Different signatures for different purposes
-- **URL Parameter Binding**: Any modification breaks signature
+
+* **HMAC-SHA256 Signatures**: Cryptographic validation
+* **Timestamp Validation**: Prevents replay attacks
+* **Context Separation**: Different signatures for different purposes
+* **URL Parameter Binding**: Any modification breaks signature
 
 ### Webhook Security
-- **Secret Validation**: Only authenticated webhooks processed
-- **Request Verification**: Validates request source
+
+* **Secret Validation**: Only authenticated webhooks processed
+* **Request Verification**: Validates request source
 
 ### Data Protection
-- **No Database Required**: Stateless architecture
-- **Minimal Data Storage**: No persistent customer data
-- **Gateway Verification**: All payments verified with source
+
+* **No Database Required**: Stateless architecture
+* **Minimal Data Storage**: No persistent customer data
+* **Gateway Verification**: All payments verified with source
 
 ---
 
 ## 🛣 API Routes
 
-| Route | Method | Auth Required | Description |
-|-------|--------|---------------|-------------|
-| `/` | GET | ✅ Yes | Dashboard / Terminal |
-| `/login` | POST | ❌ No | Authentication endpoint |
-| `/generate` | POST | ✅ Yes | Create payment link with POS order ID |
-| `/pay` | GET | ❌ No | Process payment (validates signature) |
-| `/success` | GET | ❌ No | Receipt page (validates signature, shows POS order ID) |
-| `/webhook` | POST | ❌ No (Secret) | SindiPay webhook handler (sends Discord notification) |
+| Route       | Method | Auth Required | Description                                            |
+| ----------- | ------ | ------------- | ------------------------------------------------------ |
+| `/`         | GET    | ✅ Yes         | Dashboard / Terminal                                   |
+| `/login`    | POST   | ❌ No          | Authentication endpoint                                |
+| `/generate` | POST   | ✅ Yes         | Create payment link with POS order ID                  |
+| `/pay`      | GET    | ❌ No          | Process payment (validates signature)                  |
+| `/success`  | GET    | ❌ No          | Receipt page (validates signature, shows POS order ID) |
+| `/webhook`  | POST   | ❌ No (Secret) | SindiPay webhook handler (sends Discord notification)  |
 
 ---
 
@@ -349,10 +383,11 @@ In the Cloudflare Dashboard:
 
 **What's happening**: SindiPay's API returned HTML instead of JSON, typically due to Cloudflare's security challenge page.
 
-**Fix**: 
-- This is temporary protection on SindiPay's side
-- Wait 5 minutes, then try creating a new payment link
-- If persistent, check your worker's IP reputation or contact SindiPay support
+**Fix**:
+
+* This is temporary protection on SindiPay's side
+* Wait 5 minutes, then try creating a new payment link
+* If persistent, check your worker's IP reputation or contact SindiPay support
 
 **Debug tip**: Check your worker logs - you'll see HTML content starting with `<!DOCTYPE`
 
@@ -362,10 +397,11 @@ In the Cloudflare Dashboard:
 
 **What's happening**: The payment link has passed its 30-minute validity window.
 
-**Fix**: 
-- Generate a fresh payment link from your dashboard
-- Remind customers to complete payments within 30 minutes
-- If you need longer validity, adjust `TIME_PAY_LINK` constant in the code
+**Fix**:
+
+* Generate a fresh payment link from your dashboard
+* Remind customers to complete payments within 30 minutes
+* If you need longer validity, adjust `TIME_PAY_LINK` constant in the code
 
 **Note**: This is a security feature - expired links cannot be reactivated, only replaced.
 
@@ -376,10 +412,11 @@ In the Cloudflare Dashboard:
 **What's happening**: The receipt link is older than 48 hours and has been invalidated.
 
 **Fix**:
-- Receipts are designed to expire for security
-- Customer should use the email/WhatsApp buttons to contact you
-- You can still verify the transaction in SindiPay's dashboard using the Order ID
-- To extend receipt validity, modify `TIME_RECEIPT` constant
+
+* Receipts are designed to expire for security
+* Customer should use the email/WhatsApp buttons to contact you
+* You can still verify the transaction in SindiPay's dashboard using the Order ID
+* To extend receipt validity, modify `TIME_RECEIPT` constant
 
 **Best practice**: Advise customers to screenshot or save receipts before expiration.
 
@@ -390,15 +427,17 @@ In the Cloudflare Dashboard:
 **What's happening**: The URL signature doesn't match the expected HMAC-SHA256 hash.
 
 **Common causes**:
+
 1. Customer manually edited URL parameters
 2. URL was corrupted during copy/paste
 3. Link was generated with a different `WEBHOOK_SECRET`
 4. Signature type mismatch (PAY vs RCT)
 
 **Fix**:
-- Always generate new links - never manually modify URLs
-- If you recently changed `WEBHOOK_SECRET`, old links are permanently invalid
-- Check your worker logs to see which parameter failed validation
+
+* Always generate new links - never manually modify URLs
+* If you recently changed `WEBHOOK_SECRET`, old links are permanently invalid
+* Check your worker logs to see which parameter failed validation
 
 **Security note**: This error is intentional - it prevents link tampering attacks.
 
@@ -409,12 +448,14 @@ In the Cloudflare Dashboard:
 **Diagnostic checklist**:
 
 1. **Verify webhook URL**
+
    ```bash
    npx wrangler secret list
    # Should show DISCORD_WEBHOOK_URL
    ```
 
 2. **Test webhook directly**
+
    ```bash
    curl -X POST "YOUR_DISCORD_WEBHOOK_URL" \
      -H "Content-Type: application/json" \
@@ -422,21 +463,25 @@ In the Cloudflare Dashboard:
    ```
 
 3. **Check Discord permissions**
-   - Webhook must have "Send Messages" permission
-   - Channel must not be archived
-   - Webhook hasn't been deleted/regenerated
+
+   * Webhook must have "Send Messages" permission
+   * Channel must not be archived
+   * Webhook hasn't been deleted/regenerated
 
 4. **Check worker logs**
+
    ```bash
    npx wrangler tail
    ```
+
    Look for errors in the `/webhook` route
 
 **If notifications work but timestamp shows "N/A"**:
-- SindiPay might be sending timestamps in an unexpected format
-- Check the webhook payload in your logs
-- The system supports: Unix seconds (10 digits), Unix milliseconds (13 digits), and ISO 8601 strings
-- Falls back to current server time if parsing fails
+
+* SindiPay might be sending timestamps in an unexpected format
+* Check the webhook payload in your logs
+* The system supports: Unix seconds (10 digits), Unix milliseconds (13 digits), and ISO 8601 strings
+* Falls back to current server time if parsing fails
 
 ---
 
@@ -452,9 +497,10 @@ npx wrangler deploy
 ```
 
 **How it works now**:
-- System prioritizes `data.order_id` from webhook payload
-- Falls back to `data.id` only if order_id is missing
-- Your custom POS order IDs should now appear correctly in Discord
+
+* System prioritizes `data.order_id` from webhook payload
+* Falls back to `data.id` only if order_id is missing
+* Your custom POS order IDs should now appear correctly in Discord
 
 **Verify the fix**: Create a test payment and check Discord - you should see "Order ID: POS-xxxxx"
 
@@ -467,26 +513,31 @@ npx wrangler deploy
 **Debugging steps**:
 
 1. **Check if payment was actually completed**
-   - Log into SindiPay dashboard
-   - Search for the transaction by amount/date
+
+   * Log into SindiPay dashboard
+   * Search for the transaction by amount/date
 
 2. **Verify API key is correct**
+
    ```bash
    npx wrangler secret list
    # Ensure API_KEY is set
    ```
 
 3. **Check worker logs for API errors**
+
    ```bash
    npx wrangler tail
    ```
+
    Look for 404 responses from SindiPay
 
 4. **Common causes**:
-   - Customer abandoned payment before completion
-   - Payment failed but customer followed success URL anyway
-   - API key doesn't have access to this transaction
-   - Transaction was on a different SindiPay account
+
+   * Customer abandoned payment before completion
+   * Payment failed but customer followed success URL anyway
+   * API key doesn't have access to this transaction
+   * Transaction was on a different SindiPay account
 
 **Fix**: If payment was completed but not found, contact SindiPay support with the payment_id from the URL.
 
@@ -502,12 +553,13 @@ npx wrangler tail --format pretty
 
 **Common errors**:
 
-- `Cannot read property 'X' of undefined` → Missing environment variable
-- `Failed to fetch` → Network issue with SindiPay API
-- `Invalid JSON` → Corrupted webhook payload
-- `Signature generation failed` → `WEBHOOK_SECRET` not set
+* `Cannot read property 'X' of undefined` → Missing environment variable
+* `Failed to fetch` → Network issue with SindiPay API
+* `Invalid JSON` → Corrupted webhook payload
+* `Signature generation failed` → `WEBHOOK_SECRET` not set
 
 **General debugging**:
+
 1. Verify all required secrets are set
 2. Check Cloudflare Workers status page
 3. Test locally with `npx wrangler dev`
@@ -605,6 +657,7 @@ open http://localhost:8787
 ### Reporting Issues
 
 Found a bug or have a feature request? Please:
+
 1. Check existing issues first
 2. Provide detailed description
 3. Include reproduction steps
@@ -614,11 +667,21 @@ Found a bug or have a feature request? Please:
 
 ## 📝 Recent Updates
 
-### v1.1.0 (December 2024)
-- ✅ **Fixed Discord timestamp display** - Now correctly shows transaction time in GMT+3
-- ✅ **Fixed Discord Order ID** - Now shows POS order IDs (POS-xxxxx) instead of internal payment IDs
-- ✅ **Improved timestamp parsing** - Supports Unix timestamps (seconds/milliseconds), ISO 8601, and automatic fallback
-- ✅ **Enhanced error handling** - Better timezone support and date validation
+### v1.1.1 (25.12.2025 December 2025)
+
+* ✅ **Receipt URL privacy**: customer name/email are no longer exposed in `/success` URL query parameters
+* ✅ **Still shareable receipts**: the receipt link remains usable across browsers/devices while PII stays hidden in an encrypted token
+* ✅ **No database required**: kept the worker stateless; uses existing `WEBHOOK_SECRET`
+* ✅ **Cross-check on decrypt**: when the token is decrypted, the worker verifies the `oid` (Order ID) inside the encrypted blob matches the `oid` in the URL
+* ✅ **Random order IDs**: introduces a `generateRandomString()` helper to create random `order_id` values (example: `POS-aB12...`)
+* ✅ **Cleaner config**: groups merchant settings into a single `config` object at the start of each request (logo/name/email/whatsapp, etc.)
+
+### v1.1.0 (23.12.2025 December 2025)
+
+* ✅ **Fixed Discord timestamp display** - Now correctly shows transaction time in GMT+3
+* ✅ **Fixed Discord Order ID** - Now shows POS order IDs (POS-xxxxx) instead of internal payment IDs
+* ✅ **Improved timestamp parsing** - Supports Unix timestamps (seconds/milliseconds), ISO 8601, and automatic fallback
+* ✅ **Enhanced error handling** - Better timezone support and date validation
 
 ---
 
@@ -627,20 +690,21 @@ Found a bug or have a feature request? Please:
 This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
 
 ### What this means:
-- ✅ Commercial use allowed
-- ✅ Modification allowed
-- ✅ Distribution allowed
-- ✅ Private use allowed
-- ⚠️ Liability: Software is provided "as is"
-- ⚠️ Warranty: No warranty provided
+
+* ✅ Commercial use allowed
+* ✅ Modification allowed
+* ✅ Distribution allowed
+* ✅ Private use allowed
+* ⚠️ Liability: Software is provided "as is"
+* ⚠️ Warranty: No warranty provided
 
 ---
 
 ## 🙏 Acknowledgments
 
-- **[SindiPay](https://sindipay.com/)** - Payment gateway infrastructure
-- **[Cloudflare Workers](https://workers.cloudflare.com/)** - Serverless platform
-- **[QR Server API](https://goqr.me/api/)** - QR code generation
+* **[SindiPay](https://sindipay.com/)** - Payment gateway infrastructure
+* **[Cloudflare Workers](https://workers.cloudflare.com/)** - Serverless platform
+* **[QR Server API](https://goqr.me/api/)** - QR code generation
 
 ---
 
@@ -648,11 +712,11 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 Love this project? Here's how you can help:
 
-- ⭐ **Star the repo** to show your support
-- 🍴 **Fork it** and extend the features
-- 🐛 **Report bugs** or suggest improvements via GitHub Issues
-- 📢 **Share it** with merchants who need a lightweight POS solution
-- 💬 **Join discussions** and help other users
+* ⭐ **Star the repo** to show your support
+* 🍴 **Fork it** and extend the features
+* 🐛 **Report bugs** or suggest improvements via GitHub Issues
+* 📢 **Share it** with merchants who need a lightweight POS solution
+* 💬 **Join discussions** and help other users
 
 ---
 
@@ -660,7 +724,7 @@ If my projects make your life easier, consider supporting development. Your supp
 
 <div align="center">
 
-[![Fiat Donation](https://img.shields.io/badge/💵_Fiat_Donation-H190K/Sindipay-ff7a18?style=for-the-badge&logo=creditcard&logoColor=white)](https://donation.h190k.com/)
+[![Fiat Donation](https://img.shields.io/badge/💵_Fiat_Donation-H190K/Sindipay-ff7a18?style=for-the-badge\&logo=creditcard\&logoColor=white)](https://donation.h190k.com/)
 
 [![Crypto Donations](https://img.shields.io/badge/Crypto_Donations-NOWPayments-9B59B6?style=for-the-badge\&logo=bitcoin\&logoColor=colored)](https://nowpayments.io/donation?api_key=J0QACAH-BTH4F4F-QDXM4ZS-RCA58BH)
 
