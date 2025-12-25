@@ -13,6 +13,59 @@ export default {
       return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
     };
 
+    // -----------------------------
+    // ✅ new in 1.1.1 sanitize final /success link using encrypted token `c`
+    // - keeps Discord receiving name/email (via webhook URL)
+    // - keeps receipt page showing name/email (decrypt `c` on /success)
+    // - /success URL contains NO plain name/email
+    // -----------------------------
+
+    const toBase64Url = (bytes) => {
+      let bin = "";
+      const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+      for (let i = 0; i < arr.length; i++) bin += String.fromCharCode(arr[i]);
+      return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+    };
+
+    const fromBase64Url = (s) => {
+      const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4);
+      const bin = atob(b64);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    };
+
+    const deriveAesKey = async () => {
+      const encoder = new TextEncoder();
+      const raw = encoder.encode(env.WEBHOOK_SECRET);
+      const hash = await crypto.subtle.digest("SHA-256", raw);
+      return crypto.subtle.importKey("raw", hash, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+    };
+
+    const encryptPII = async (obj) => {
+      const key = await deriveAesKey();
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const encoder = new TextEncoder();
+      const plaintext = encoder.encode(JSON.stringify(obj));
+      const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext);
+
+      const packed = new Uint8Array(iv.length + ciphertext.byteLength);
+      packed.set(iv, 0);
+      packed.set(new Uint8Array(ciphertext), iv.length);
+      return toBase64Url(packed);
+    };
+
+    const decryptPII = async (token) => {
+      const key = await deriveAesKey();
+      const packed = fromBase64Url(token);
+      if (packed.length < 13) throw new Error("Invalid token");
+      const iv = packed.slice(0, 12);
+      const ciphertext = packed.slice(12);
+      const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+      const decoder = new TextDecoder();
+      return JSON.parse(decoder.decode(plaintext));
+    };
+
     const cookieHeader = request.headers.get("Cookie") || "";
     const isLoggedIn = cookieHeader.includes(`session=${env.TERMINAL_PASSWORD}`);
 
@@ -73,9 +126,18 @@ export default {
 
         const receiptTime = Date.now().toString();
         const paymentTimestamp = Math.floor(Date.now() / 1000).toString();
-        const receiptData = `name=${name}&email=${email}&time=${receiptTime}&ts=${paymentTimestamp}`;
+
+        // ✅ Encrypt name/email into token `c`
+        const c = await encryptPII({ name, email });
+
+        // ✅ Sign receipt using token `c` (sanitized link)
+        const receiptData = `c=${c}&time=${receiptTime}&ts=${paymentTimestamp}`;
         const receiptSig = await generateSignature(receiptData, "RCT");
-        const successUrl = `${url.origin}/success?name=${encodeURIComponent(name)}&email=${encodeURIComponent(email)}&time=${receiptTime}&ts=${paymentTimestamp}&sig=${receiptSig}`;
+
+        // ✅ Sanitized success URL (NO name/email)
+        const successUrl = `${url.origin}/success?c=${encodeURIComponent(c)}&time=${receiptTime}&ts=${paymentTimestamp}&sig=${receiptSig}`;
+
+        // ✅ Keep name/email in webhook URL (Discord still sees them)
         const secureWebhookUrl = `${url.origin}/webhook?secret=${env.WEBHOOK_SECRET}&name=${encodeURIComponent(name)}&email=${encodeURIComponent(email)}`;
 
         const spResponse = await fetch("https://sindipay.com/api/v1/payments/gateway/", {
@@ -100,8 +162,7 @@ export default {
 
       if (url.pathname === "/success") {
         const paymentId = url.searchParams.get("payment_id");
-        const userName = url.searchParams.get("name") || "";
-        const userEmail = url.searchParams.get("email") || "";
+        const c = url.searchParams.get("c") || "";
         const time = url.searchParams.get("time") || "0";
         const paymentTimestamp = url.searchParams.get("ts") || "";
         const providedSig = url.searchParams.get("sig");
@@ -115,7 +176,8 @@ export default {
            return new Response(getErrorHTML("Receipt Expired.<br>This receipt is older than 48 hours.", emailBtn + waBtn), { headers: { "Content-Type": "text/html" } });
         }
 
-        const dataToCheck = `name=${userName}&email=${userEmail}&time=${time}&ts=${paymentTimestamp}`;
+        // ✅ Verify signature using token `c` (not plain name/email)
+        const dataToCheck = `c=${c}&time=${time}&ts=${paymentTimestamp}`;
         const expectedSig = await generateSignature(dataToCheck, "RCT");
 
         if (!providedSig || providedSig !== expectedSig) {
@@ -123,6 +185,21 @@ export default {
            const emailBtn = env.MERCHANT_EMAIL ? `<button onclick="location.href='mailto:${env.MERCHANT_EMAIL}?subject=${subject}'">Email Merchant</button>` : "";
            const waBtn = env.MERCHANT_WHATSAPP ? `<button style="background:#25D366; color:#fff; margin-top:10px;" onclick="location.href='https://wa.me/${env.MERCHANT_WHATSAPP}'">WhatsApp Merchant</button>` : "";
            return new Response(getErrorHTML("Security Warning.<br>Invalid receipt signature.", emailBtn + waBtn), { headers: { "Content-Type": "text/html" } });
+        }
+
+        // ✅ Decrypt token to show name/email on the receipt page (even if link is copied to another browser)
+        let userName = "";
+        let userEmail = "";
+        try {
+          if (c) {
+            const pii = await decryptPII(c);
+            userName = pii?.name || "";
+            userEmail = pii?.email || "";
+          }
+        } catch (e) {
+          // If token is broken, we keep receipt working, just without PII
+          userName = "";
+          userEmail = "";
         }
 
         const checkResponse = await fetch(`https://sindipay.com/api/v1/payments/gateway/${paymentId}/`, {
@@ -225,7 +302,7 @@ const getIconUrl = (env) => env.MERCHANT_LOGO || "https://via.placeholder.com/18
 const getHeadMeta = (env) => { const iconUrl = getIconUrl(env); return `<link rel="icon" type="image/png" href="${iconUrl}"><link rel="apple-touch-icon" href="${iconUrl}"><meta name="apple-mobile-web-app-title" content="${env.MERCHANT_NAME || 'POS'} Terminal"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="theme-color" content="#000000">`; };
 const STYLES = `:root { --bg: #000; --text: #fff; --sub: #555; --border: #222; } * { box-sizing: border-box; -webkit-font-smoothing: antialiased; } body { background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; margin:0; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; width:100vw; padding-bottom:60px; overflow-x:hidden; } body::-webkit-scrollbar { display: none; } body { -ms-overflow-style: none; scrollbar-width: none; } .container { width:100%; max-width:350px; display:flex; flex-direction:column; align-items:center; padding:20px; text-align:center; } input { background:transparent; border:none; border-bottom: 1px solid var(--border); color:var(--text); font-size:18px; width:100%; text-align:center; outline:none; padding:15px 0; margin-bottom:20px; border-radius:0; } input.amount { font-size:45px; margin-bottom:30px; } button { width:100%; background:#fff; color:#000; border:none; padding:20px; border-radius:50px; font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:2px; cursor:pointer; margin-bottom:12px; } .receipt-card { width:100%; border:1px solid var(--border); padding:40px 20px; border-radius:30px; margin-bottom:30px; } .row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:15px; font-size:14px; color:var(--sub); gap:20px; } .val { color:#fff; font-weight:600; text-align:right; flex-shrink:0; max-width:60%; word-break:break-word; } .alert { position:fixed; top:20px; left:50%; transform:translateX(-50%); background:#fff; color:#000; padding:12px 25px; border-radius:50px; font-size:12px; font-weight:600; z-index:1000; animation:slideDown 0.3s ease; } @keyframes slideDown { from { opacity:0; transform:translateX(-50%) translateY(-20px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }`;
 
-function getErrorHTML(msg, customAction) { const action = customAction ? customAction : `<button onclick="location.href='/'">Back Home</button>`; return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Error</title><style>${STYLES}</style></head><body><div class="container"><div style="font-size:40px;margin-bottom:20px;">⚠️</div><p style="color:var(--sub);">${msg}</p><br>${action}</div></body></html>`; }
+function getErrorHTML(msg, customAction) { const action = customAction ? customAction : `<button onclick="location.href='/'">Back Home</button>`; return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Error</title><style>${STYLES}</style></head><body><div class="container"><div style="font-size:40px;margin-bottom:20px;"⚠️</div><p style="color:var(--sub);">${msg}</p><br>${action}</div></body></html>`; }
 function getLoginHTML(env) { return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">${getHeadMeta(env)}<style>${STYLES}</style></head><body><div class="container"><div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">Authentication</div><form action="/login" method="POST" style="width:100%"><input type="password" name="password" placeholder="Key" required autofocus><button type="submit">Unlock</button></form></div></body></html>`; }
 function getTerminalHTML(env) { return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">${getHeadMeta(env)}<style>${STYLES}</style></head><body><div class="container"><div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">${env.MERCHANT_NAME || 'POS'} Terminal</div><form action="/generate" method="POST" style="width:100%"><input type="number" name="amount" class="amount" placeholder="0" required autofocus inputmode="decimal"><input type="text" name="name" placeholder="Client Name (Optional)"><input type="email" name="email" placeholder="Client Email (Optional)"><button type="submit">Create Request</button></form></div></body></html>`; }
 function getSharePageHTML(amount, qrUrl, subLink) { return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>${STYLES} .qr-box{background:#fff; padding:15px; border-radius:20px; margin-bottom:40px;} img{display:block; width:220px; height:220px;}</style></head><body><div class="container"><div style="font-size:48px; font-weight:200; margin-bottom:40px;">${amount}</div><div class="qr-box"><img src="${qrUrl}"></div><button onclick="doShare()">Share Link</button><button style="background:transparent; color:#fff; border:1px solid var(--border); margin-top:10px;" onclick="doCopy()">Copy Link</button><a href="/" style="color:var(--sub); text-decoration:none; font-size:11px; margin-top:30px; text-transform:uppercase;">Cancel</a></div><script> function showAlert(msg) { const alert = document.createElement('div'); alert.className = 'alert'; alert.textContent = msg; document.body.appendChild(alert); setTimeout(() => alert.remove(), 2500); } function doShare(){ if(navigator.share){navigator.share({title:'Payment', url:'${subLink}'});}else{doCopy();} } function doCopy(){ navigator.clipboard.writeText('${subLink}'); showAlert('Link Copied!'); } </script></body></html>`; }
