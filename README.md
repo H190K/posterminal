@@ -32,6 +32,7 @@ We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment
 * **SindiPay Integration** - Seamless integration with SindiPay payment gateway
 * **QR Code Generation** - Automatic QR code creation for easy mobile payments
 * **Real-time Verification** - Payment status verification directly with gateway API
+* **Order ID Tracking** - Custom POS order IDs (POS-xxxxx) for easy transaction tracking
 * **Multiple Currency Support** - Currently configured for IQD (Iraqi Dinar), easily adaptable
 
 ### 📱 User Experience
@@ -43,8 +44,9 @@ We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment
 
 ### 🔔 Notifications
 * **Discord Webhooks** - Real-time transaction notifications to Discord channels
-* **Rich Embeds** - Formatted transaction details with status indicators
-* **Timezone Support** - Timestamps displayed in GMT+3 (configurable)
+* **Rich Embeds** - Formatted transaction details with status indicators and POS order IDs
+* **Robust Timestamp Handling** - Supports multiple timestamp formats (Unix, ISO 8601, milliseconds)
+* **Timezone Support** - Timestamps displayed in GMT+3 (Asia/Baghdad timezone, configurable)
 
 ### ⚙️ Customization
 * **Branding Support** - Custom merchant name, logo, and contact information
@@ -102,24 +104,25 @@ sequenceDiagram
     Worker->>Admin: Set secure cookie
     
     Admin->>Worker: Create payment (amount, name, email)
+    Worker->>Worker: Generate POS Order ID
     Worker->>Worker: Generate signed URL + QR
     Worker->>Admin: Return QR code page
     
     Customer->>Worker: Scan QR / Open link
     Worker->>Worker: Verify signature & expiry
-    Worker->>SindiPay: Create payment order
+    Worker->>SindiPay: Create payment order (POS-xxxxx)
     SindiPay->>Customer: Redirect to payment page
     
     Customer->>SindiPay: Complete payment
     SindiPay->>Worker: Webhook notification
     Worker->>Worker: Verify webhook secret
-    Worker->>Discord: Send notification
+    Worker->>Discord: Send notification (with POS order ID & timestamp)
     
     SindiPay->>Customer: Redirect to success page
     Customer->>Worker: Access receipt
     Worker->>Worker: Verify receipt signature
     Worker->>SindiPay: Verify payment status
-    Worker->>Customer: Display digital receipt
+    Worker->>Customer: Display digital receipt (with POS order ID)
 ```
 
 ### Security Layers
@@ -267,6 +270,7 @@ In the Cloudflare Dashboard:
    - Enter the amount
    - Optionally add customer name and email
    - Click "Create Request"
+   - System generates unique POS order ID (POS-xxxxx)
 
 3. **Share Payment Link**
    - Show the QR code to customer
@@ -275,7 +279,12 @@ In the Cloudflare Dashboard:
 
 4. **Monitor Transactions**
    - Check Discord for real-time notifications (if configured)
-   - Each payment triggers an embed with full details
+   - Each payment triggers an embed with:
+     - POS Order ID (POS-xxxxx)
+     - Transaction timestamp (GMT+3)
+     - Payment status
+     - Customer details
+     - Amount
 
 ### For Customers
 
@@ -286,7 +295,11 @@ In the Cloudflare Dashboard:
 
 2. **View Receipt**
    - Automatically redirected to receipt page
-   - Receipt shows transaction details
+   - Receipt shows:
+     - POS Order ID
+     - Transaction date/time (GMT+3)
+     - Payment amount and status
+     - Customer information
    - Can share or email receipt
    - Receipt accessible for 48 hours
 
@@ -323,10 +336,10 @@ In the Cloudflare Dashboard:
 |-------|--------|---------------|-------------|
 | `/` | GET | ✅ Yes | Dashboard / Terminal |
 | `/login` | POST | ❌ No | Authentication endpoint |
-| `/generate` | POST | ✅ Yes | Create payment link |
+| `/generate` | POST | ✅ Yes | Create payment link with POS order ID |
 | `/pay` | GET | ❌ No | Process payment (validates signature) |
-| `/success` | GET | ❌ No | Receipt page (validates signature) |
-| `/webhook` | POST | ❌ No (Secret) | SindiPay webhook handler |
+| `/success` | GET | ❌ No | Receipt page (validates signature, shows POS order ID) |
+| `/webhook` | POST | ❌ No (Secret) | SindiPay webhook handler (sends Discord notification) |
 
 ---
 
@@ -348,12 +361,19 @@ In the Cloudflare Dashboard:
 **Cause**: Link parameters were tampered with or signature doesn't match  
 **Solution**: Generate a new link. Never modify URL parameters manually.
 
-### "Discord Not Updating"
+### "Discord Not Updating" or "Time Shows N/A"
 **Causes & Solutions**:
 - Verify `DISCORD_WEBHOOK_URL` is set correctly
 - Ensure webhook has permission to post in the channel
 - Check webhook hasn't been deleted in Discord
-- Test webhook directly using curl
+- The system now supports multiple timestamp formats:
+  - Unix timestamps (seconds/milliseconds)
+  - ISO 8601 strings
+  - Automatic fallback to current time if parsing fails
+- If time still shows incorrectly, check SindiPay API response format
+
+### "Wrong Order ID in Discord"
+**Fixed**: Discord notifications now correctly show POS order IDs (POS-xxxxx) instead of internal payment IDs. The system prioritizes `order_id` field from the webhook payload.
 
 ### "Transaction Not Found"
 **Cause**: Payment ID doesn't exist in SindiPay system  
@@ -380,6 +400,15 @@ Edit the SindiPay API call in the `/pay` route:
 currency: "IQD",  // Change to your currency code
 ```
 
+### Change Timezone for Discord/Receipts
+
+Edit the timezone in the webhook handler and receipt generation:
+
+```javascript
+timeZone: 'Asia/Baghdad'  // Change to your timezone
+// Examples: 'America/New_York', 'Europe/London', 'Asia/Tokyo'
+```
+
 ### Customize UI Colors
 
 Edit the CSS variables in the `STYLES` constant:
@@ -391,6 +420,15 @@ Edit the CSS variables in the `STYLES` constant:
   --sub: #555;     /* Subdued text */
   --border: #222;  /* Border color */
 }
+```
+
+### Customize Order ID Format
+
+Edit the order ID generation in the `/pay` route:
+
+```javascript
+order_id: `POS-${Date.now()}`  // Change 'POS' to your prefix
+// Examples: `SHOP-${Date.now()}`, `ORDER-${Date.now()}`
 ```
 
 ### Add More Payment Gateways
@@ -437,6 +475,16 @@ Found a bug or have a feature request? Please:
 2. Provide detailed description
 3. Include reproduction steps
 4. Add error messages/screenshots if applicable
+
+---
+
+## 📝 Recent Updates
+
+### v1.1.0 (December 2024)
+- ✅ **Fixed Discord timestamp display** - Now correctly shows transaction time in GMT+3
+- ✅ **Fixed Discord Order ID** - Now shows POS order IDs (POS-xxxxx) instead of internal payment IDs
+- ✅ **Improved timestamp parsing** - Supports Unix timestamps (seconds/milliseconds), ISO 8601, and automatic fallback
+- ✅ **Enhanced error handling** - Better timezone support and date validation
 
 ---
 
