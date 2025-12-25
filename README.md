@@ -345,39 +345,173 @@ In the Cloudflare Dashboard:
 
 ## 🛠 Troubleshooting
 
-### "Gateway Firewall Block"
-**Cause**: SindiPay returns HTML instead of JSON (usually a firewall challenge)  
-**Solution**: Wait 5 minutes and retry. This is a temporary gateway protection.
+### "Gateway Firewall Block" Error
 
-### "Link Expired"
-**Cause**: Payment link is older than 30 minutes  
-**Solution**: Generate a new payment link from the dashboard.
+**What's happening**: SindiPay's API returned HTML instead of JSON, typically due to Cloudflare's security challenge page.
 
-### "Receipt Expired"
-**Cause**: Receipt is older than 48 hours  
-**Solution**: Contact merchant using email/WhatsApp buttons provided.
+**Fix**: 
+- This is temporary protection on SindiPay's side
+- Wait 5 minutes, then try creating a new payment link
+- If persistent, check your worker's IP reputation or contact SindiPay support
 
-### "Invalid Signature"
-**Cause**: Link parameters were tampered with or signature doesn't match  
-**Solution**: Generate a new link. Never modify URL parameters manually.
+**Debug tip**: Check your worker logs - you'll see HTML content starting with `<!DOCTYPE`
 
-### "Discord Not Updating" or "Time Shows N/A"
-**Causes & Solutions**:
-- Verify `DISCORD_WEBHOOK_URL` is set correctly
-- Ensure webhook has permission to post in the channel
-- Check webhook hasn't been deleted in Discord
-- The system now supports multiple timestamp formats:
-  - Unix timestamps (seconds/milliseconds)
-  - ISO 8601 strings
-  - Automatic fallback to current time if parsing fails
-- If time still shows incorrectly, check SindiPay API response format
+---
 
-### "Wrong Order ID in Discord"
-**Fixed**: Discord notifications now correctly show POS order IDs (POS-xxxxx) instead of internal payment IDs. The system prioritizes `order_id` field from the webhook payload.
+### "Link Expired" Error
 
-### "Transaction Not Found"
-**Cause**: Payment ID doesn't exist in SindiPay system  
-**Solution**: Verify payment was completed. Contact merchant if issue persists.
+**What's happening**: The payment link has passed its 30-minute validity window.
+
+**Fix**: 
+- Generate a fresh payment link from your dashboard
+- Remind customers to complete payments within 30 minutes
+- If you need longer validity, adjust `TIME_PAY_LINK` constant in the code
+
+**Note**: This is a security feature - expired links cannot be reactivated, only replaced.
+
+---
+
+### "Receipt Expired" Error
+
+**What's happening**: The receipt link is older than 48 hours and has been invalidated.
+
+**Fix**:
+- Receipts are designed to expire for security
+- Customer should use the email/WhatsApp buttons to contact you
+- You can still verify the transaction in SindiPay's dashboard using the Order ID
+- To extend receipt validity, modify `TIME_RECEIPT` constant
+
+**Best practice**: Advise customers to screenshot or save receipts before expiration.
+
+---
+
+### "Invalid Signature" / "Security Check Failed"
+
+**What's happening**: The URL signature doesn't match the expected HMAC-SHA256 hash.
+
+**Common causes**:
+1. Customer manually edited URL parameters
+2. URL was corrupted during copy/paste
+3. Link was generated with a different `WEBHOOK_SECRET`
+4. Signature type mismatch (PAY vs RCT)
+
+**Fix**:
+- Always generate new links - never manually modify URLs
+- If you recently changed `WEBHOOK_SECRET`, old links are permanently invalid
+- Check your worker logs to see which parameter failed validation
+
+**Security note**: This error is intentional - it prevents link tampering attacks.
+
+---
+
+### Discord Notifications Not Appearing
+
+**Diagnostic checklist**:
+
+1. **Verify webhook URL**
+   ```bash
+   npx wrangler secret list
+   # Should show DISCORD_WEBHOOK_URL
+   ```
+
+2. **Test webhook directly**
+   ```bash
+   curl -X POST "YOUR_DISCORD_WEBHOOK_URL" \
+     -H "Content-Type: application/json" \
+     -d '{"content": "Test message"}'
+   ```
+
+3. **Check Discord permissions**
+   - Webhook must have "Send Messages" permission
+   - Channel must not be archived
+   - Webhook hasn't been deleted/regenerated
+
+4. **Check worker logs**
+   ```bash
+   npx wrangler tail
+   ```
+   Look for errors in the `/webhook` route
+
+**If notifications work but timestamp shows "N/A"**:
+- SindiPay might be sending timestamps in an unexpected format
+- Check the webhook payload in your logs
+- The system supports: Unix seconds (10 digits), Unix milliseconds (13 digits), and ISO 8601 strings
+- Falls back to current server time if parsing fails
+
+---
+
+### Discord Shows Wrong Order ID
+
+**If you see internal payment IDs (e.g., "100710") instead of your POS IDs (e.g., "POS-1735142400000")**:
+
+**This was a bug fixed in v1.1.0**. Update your worker to the latest version:
+
+```bash
+git pull origin main
+npx wrangler deploy
+```
+
+**How it works now**:
+- System prioritizes `data.order_id` from webhook payload
+- Falls back to `data.id` only if order_id is missing
+- Your custom POS order IDs should now appear correctly in Discord
+
+**Verify the fix**: Create a test payment and check Discord - you should see "Order ID: POS-xxxxx"
+
+---
+
+### "Transaction Not Found" on Receipt Page
+
+**What's happening**: The payment ID in the URL doesn't exist in SindiPay's system.
+
+**Debugging steps**:
+
+1. **Check if payment was actually completed**
+   - Log into SindiPay dashboard
+   - Search for the transaction by amount/date
+
+2. **Verify API key is correct**
+   ```bash
+   npx wrangler secret list
+   # Ensure API_KEY is set
+   ```
+
+3. **Check worker logs for API errors**
+   ```bash
+   npx wrangler tail
+   ```
+   Look for 404 responses from SindiPay
+
+4. **Common causes**:
+   - Customer abandoned payment before completion
+   - Payment failed but customer followed success URL anyway
+   - API key doesn't have access to this transaction
+   - Transaction was on a different SindiPay account
+
+**Fix**: If payment was completed but not found, contact SindiPay support with the payment_id from the URL.
+
+---
+
+### Worker Returns "System Error: ..."
+
+**These indicate code-level issues**. Check your worker logs:
+
+```bash
+npx wrangler tail --format pretty
+```
+
+**Common errors**:
+
+- `Cannot read property 'X' of undefined` → Missing environment variable
+- `Failed to fetch` → Network issue with SindiPay API
+- `Invalid JSON` → Corrupted webhook payload
+- `Signature generation failed` → `WEBHOOK_SECRET` not set
+
+**General debugging**:
+1. Verify all required secrets are set
+2. Check Cloudflare Workers status page
+3. Test locally with `npx wrangler dev`
+4. Review recent code changes if you modified the worker
 
 ---
 
