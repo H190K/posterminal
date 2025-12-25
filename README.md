@@ -660,7 +660,7 @@ If my projects make your life easier, consider supporting development. Your supp
 
 <div align="center">
 
-[![Support via SindiPay](https://img.shields.io/badge/💵_Cash_/_Fiat-SindiPay-0052cc?style=for-the-badge\&logo=creditcard\&logoColor=white)](https://sindipay.com/p/87d1fb71-72e9-466d-a6eb-bb9d31864d41/)
+[![Fiat Donation](https://img.shields.io/badge/💵_Fiat_Donation-H190K-ff7a18?style=for-the-badge&logo=creditcard&logoColor=white)](https://donation.h190k.com/)
 
 [![Crypto Donations](https://img.shields.io/badge/Crypto_Donations-NOWPayments-9B59B6?style=for-the-badge\&logo=bitcoin\&logoColor=colored)](https://nowpayments.io/donation?api_key=J0QACAH-BTH4F4F-QDXM4ZS-RCA58BH)
 
