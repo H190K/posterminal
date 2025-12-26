@@ -11,6 +11,10 @@ A **zero-infrastructure**, **serverless** Point of Sale (POS) system built to ru
 **Powered by SindiPay**
 We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment infrastructure with an easy-to-integrate API for developers.
 
+> **Domain note (Testing vs Production):**
+> This repo may use **`sindipay.xyz`** in code examples for **testing/sandbox** purposes.
+> For **production/live payments**, you should switch back to **`sindipay.com`**.
+
 ---
 
 ## 🌟 Key Features
@@ -393,6 +397,16 @@ In the Cloudflare Dashboard:
 
 ---
 
+### Using `sindipay.xyz` vs `sindipay.com`
+
+If you're testing, you might see the gateway domain as `sindipay.xyz`.
+That is intended for sandbox/testing.
+
+✅ **Production:** use `https://sindipay.com/...`
+🧪 **Testing:** use `https://sindipay.xyz/...`
+
+---
+
 ### "Link Expired" Error
 
 **What's happening**: The payment link has passed its 30-minute validity window.
@@ -600,7 +614,7 @@ timeZone: 'Asia/Baghdad'  // Change to your timezone
 Edit the CSS variables in the `STYLES` constant:
 
 ```css
-:root { 
+:root {
   --bg: #000;      /* Background color */
   --text: #fff;    /* Text color */
   --sub: #555;     /* Subdued text */
@@ -616,6 +630,13 @@ Edit the order ID generation in the `/pay` route:
 order_id: `POS-${Date.now()}`  // Change 'POS' to your prefix
 // Examples: `SHOP-${Date.now()}`, `ORDER-${Date.now()}`
 ```
+
+### Switch SindiPay domain (test vs production)
+
+Search in `index.js` and replace:
+
+* `https://sindipay.xyz/...` (testing)
+* `https://sindipay.com/...` (production)
 
 ### Add More Payment Gateways
 
