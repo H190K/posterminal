@@ -688,7 +688,7 @@ Found a bug or have a feature request? Please:
 
 ## 📝 Recent Updates
 
-### v1.1.1 (25.12.2025 December 2025)
+### v1.1.1 (26.12.2025 December 2025)
 
 * ✅ **Receipt URL privacy**: customer name/email are no longer exposed in `/success` URL query parameters
 * ✅ **Still shareable receipts**: the receipt link remains usable across browsers/devices while PII stays hidden in an encrypted token
@@ -697,7 +697,7 @@ Found a bug or have a feature request? Please:
 * ✅ **Random order IDs**: introduces a `generateRandomString()` helper to create random `order_id` values (example: `POS-aB12...`)
 * ✅ **Cleaner config**: groups merchant settings into a single `config` object at the start of each request (logo/name/email/whatsapp, etc.)
 
-### v1.1.0 (23.12.2025 December 2025)
+### v1.1.0 (24.12.2025 December 2025)
 
 * ✅ **Fixed Discord timestamp display** - Now correctly shows transaction time in GMT+3
 * ✅ **Fixed Discord Order ID** - Now shows POS order IDs (POS-xxxxx) instead of internal payment IDs
