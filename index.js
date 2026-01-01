@@ -1,3 +1,9 @@
+// ------------------------------------------------------------
+// ✅ OPTIONAL TEST OVERRIDES (keep empty for GitHub / production)
+// ------------------------------------------------------------
+const SINDIPAY_TLD_OVERRIDE = "";     // e.g., ".xyz" (or "xyz")
+const SINDIPAY_API_KEY_OVERRIDE = ""; // optional test key (leave empty in public repo)
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -7,6 +13,14 @@ export default {
     // -----------------------------
     const TIME_PAY_LINK = 30 * 60 * 1000;
     const TIME_RECEIPT  = 48 * 60 * 60 * 1000;
+
+    // -----------------------------
+    // ✅ SindiPay base + key (with safe overrides)
+    // -----------------------------
+    const tldRaw = (SINDIPAY_TLD_OVERRIDE || ".com").toString().trim();
+    const tld = tldRaw ? (tldRaw.startsWith(".") ? tldRaw : `.${tldRaw}`) : ".com";
+    const sindipayBase = `https://sindipay${tld}`;
+    const apiKey = (SINDIPAY_API_KEY_OVERRIDE || env.API_KEY || "").toString();
 
     // -----------------------------
     // ✅ new in 1.1.1+
@@ -19,10 +33,10 @@ export default {
       merchantLogo: env.MERCHANT_LOGO || "https://via.placeholder.com/180x180/000000/FFFFFF/?text=POS",
       terminalPassword: env.TERMINAL_PASSWORD || "",
       webhookSecret: env.WEBHOOK_SECRET || "",
-      apiKey: env.API_KEY || "",
+      apiKey: apiKey,
       discordWebhookUrl: env.DISCORD_WEBHOOK_URL || "",
       tz: "Asia/Baghdad",
-      sindipayBase: "https://sindipay.xyz",
+      sindipayBase: sindipayBase,
     };
 
     // -----------------------------
@@ -130,6 +144,9 @@ export default {
         return new Response(getTerminalHTML(config), { headers: { "Content-Type": "text/html; charset=UTF-8" } });
       }
 
+      // ------------------------------------------------------------
+      // ✅ UPDATE 1: Payment link now sanitized using c= (no name/email in URL)
+      // ------------------------------------------------------------
       if (request.method === "POST" && url.pathname === "/generate") {
         const formData = await request.formData();
         const amount = formData.get("amount");
@@ -137,13 +154,16 @@ export default {
         const email = formData.get("email") || "";
         const timestamp = Date.now().toString();
 
-        const dataToSign = `amount=${amount}&name=${name}&email=${email}&time=${timestamp}`;
+        // Put PII in c=
+        const cPay = await encryptPII({ name, email });
+
+        // Sign without exposing name/email
+        const dataToSign = `amount=${amount}&c=${cPay}&time=${timestamp}`;
         const signature = await generateSignature(dataToSign, "PAY");
 
         const subLink =
           `${url.origin}/pay?amt=${amount}` +
-          `&name=${encodeURIComponent(name)}` +
-          `&email=${encodeURIComponent(email)}` +
+          `&c=${encodeURIComponent(cPay)}` +
           `&time=${timestamp}` +
           `&sig=${signature}`;
 
@@ -155,8 +175,7 @@ export default {
 
       if (url.pathname === "/pay") {
         const amount = url.searchParams.get("amt");
-        const name = url.searchParams.get("name") || "";
-        const email = url.searchParams.get("email") || "";
+        const cPay = url.searchParams.get("c") || "";
         const time = url.searchParams.get("time") || "0";
         const providedSig = url.searchParams.get("sig");
 
@@ -173,7 +192,8 @@ export default {
           });
         }
 
-        const dataToCheck = `amount=${amount}&name=${name}&email=${email}&time=${time}`;
+        // Verify signature without name/email
+        const dataToCheck = `amount=${amount}&c=${cPay}&time=${time}`;
         const expectedSig = await generateSignature(dataToCheck, "PAY");
 
         if (!providedSig || providedSig !== expectedSig) {
@@ -185,6 +205,28 @@ export default {
             ? `<button style="background:#25D366; color:#fff; margin-top:10px;" onclick="location.href='https://wa.me/${config.merchantWhatsapp}'">WhatsApp Merchant</button>`
             : "";
           return new Response(getErrorHTML("Security Check Failed.<br>Invalid or tampered link.", emailBtn + waBtn), {
+            headers: { "Content-Type": "text/html" }
+          });
+        }
+
+        // Decrypt cPay to get name/email for gateway + webhook
+        let name = "";
+        let email = "";
+        try {
+          if (cPay) {
+            const pii = await decryptPII(cPay);
+            name = pii?.name || "";
+            email = pii?.email || "";
+          }
+        } catch (e) {
+          const subject = encodeURIComponent("Security Issue - Invalid Token");
+          const emailBtn = config.merchantEmail
+            ? `<button onclick="location.href='mailto:${config.merchantEmail}?subject=${subject}'">Email Merchant</button>`
+            : "";
+          const waBtn = config.merchantWhatsapp
+            ? `<button style="background:#25D366; color:#fff; margin-top:10px;" onclick="location.href='https://wa.me/${config.merchantWhatsapp}'">WhatsApp Merchant</button>`
+            : "";
+          return new Response(getErrorHTML("Security Check Failed.<br>Invalid customer token.", emailBtn + waBtn), {
             headers: { "Content-Type": "text/html" }
           });
         }

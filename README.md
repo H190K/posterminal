@@ -29,7 +29,7 @@ We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment
   * Receipts remain accessible for **48 hours**
 * **Context Separation** - Different signature types (PAY/RCT) prevent signature reuse across contexts
 * **Webhook Validation** - Secret-based webhook authentication ensures only legitimate payment notifications are processed
-* **Receipt URL Privacy (v1.1.1)** - Final receipt URLs are **sanitized** (no customer name/email in the browser URL), while still displaying them on the receipt page
+* **Receipt URL Privacy** - Receipt URLs can be **sanitized** (no customer name/email in the browser URL), while still displaying them on the receipt page
 
 ### 💳 Payment Processing
 
@@ -99,13 +99,13 @@ The system uses `crypto.subtle` to generate **HMAC-SHA256** signatures:
 
 A payment link signature **cannot** be reused to fake a receipt, even if stolen.
 
-### Receipt URL Privacy (v1.1.1)
+### Receipt URL Privacy
 
-Starting from **v1.1.1**, the **final receipt URL** is sanitized:
+The **final receipt URL** can be sanitized:
 
 * ✅ Receipt URL does **not** expose customer name/email in the query string
 * ✅ Receipt page still shows customer name/email
-* ✅ Discord webhook still receives customer name/email
+* ✅ Discord webhook can still receive customer name/email
 
 How it works (stateless):
 
@@ -164,16 +164,16 @@ sequenceDiagram
 
 Configure these in Cloudflare Workers as **Secrets** or in `wrangler.toml`:
 
-| Variable Name         | Description                                                                                        | Required       | Example                                |
-| --------------------- | -------------------------------------------------------------------------------------------------- | -------------- | -------------------------------------- |
-| `TERMINAL_PASSWORD`   | Password for dashboard login                                                                       | ✅ Yes          | `your-secure-password-123`             |
-| `WEBHOOK_SECRET`      | Random string for HMAC signatures & webhook auth (**also used for receipt URL privacy in v1.1.1**) | ✅ Yes          | `random-secret-key-xyz789`             |
-| `API_KEY`             | Your SindiPay API key                                                                              | ✅ Yes          | `sp_live_xxxxxxxxxxxxxxxx`             |
-| `MERCHANT_NAME`       | Your business/merchant name                                                                        | ⚠️ Recommended | `My Shop`                              |
-| `MERCHANT_EMAIL`      | Contact email for customer support                                                                 | ⚠️ Recommended | `support@myshop.com`                   |
-| `MERCHANT_WHATSAPP`   | WhatsApp number (with country code, no +)                                                          | ⚠️ Recommended | `1234567890`                           |
-| `MERCHANT_LOGO`       | URL to your logo/icon (180x180 recommended)                                                        | ⚪ Optional     | `https://example.com/logo.png`         |
-| `DISCORD_WEBHOOK_URL` | Discord webhook URL for notifications                                                              | ⚪ Optional     | `https://discord.com/api/webhooks/...` |
+| Variable Name         | Description                                                                              | Required       | Example                                |
+| --------------------- | ---------------------------------------------------------------------------------------- | -------------- | -------------------------------------- |
+| `TERMINAL_PASSWORD`   | Password for dashboard login                                                             | ✅ Yes          | `your-secure-password-123`             |
+| `WEBHOOK_SECRET`      | Random string for HMAC signatures & webhook auth (**also used for receipt URL privacy**) | ✅ Yes          | `random-secret-key-xyz789`             |
+| `API_KEY`             | Your SindiPay API key                                                                    | ✅ Yes          | `sp_live_xxxxxxxxxxxxxxxx`             |
+| `MERCHANT_NAME`       | Your business/merchant name                                                              | ⚠️ Recommended | `My Shop`                              |
+| `MERCHANT_EMAIL`      | Contact email for customer support                                                       | ⚠️ Recommended | `support@myshop.com`                   |
+| `MERCHANT_WHATSAPP`   | WhatsApp number (with country code, no +)                                                | ⚠️ Recommended | `1234567890`                           |
+| `MERCHANT_LOGO`       | URL to your logo/icon (180x180 recommended)                                              | ⚪ Optional     | `https://example.com/logo.png`         |
+| `DISCORD_WEBHOOK_URL` | Discord webhook URL for notifications                                                    | ⚪ Optional     | `https://discord.com/api/webhooks/...` |
 
 ### Setting up Environment Variables
 
@@ -501,22 +501,17 @@ That is intended for sandbox/testing.
 
 ### Discord Shows Wrong Order ID
 
-**If you see internal payment IDs (e.g., "100710") instead of your POS IDs (e.g., "POS-1735142400000")**:
+If you see an internal gateway payment ID instead of your POS order ID:
 
-**This was a bug fixed in v1.1.0**. Update your worker to the latest version:
+**How it should work**:
 
-```bash
-git pull origin main
-npx wrangler deploy
-```
+* The system should prioritize `order_id` from the webhook payload
+* It may fall back to another identifier only if `order_id` is missing
 
-**How it works now**:
+**Verify**:
 
-* System prioritizes `data.order_id` from webhook payload
-* Falls back to `data.id` only if order_id is missing
-* Your custom POS order IDs should now appear correctly in Discord
-
-**Verify the fix**: Create a test payment and check Discord - you should see "Order ID: POS-xxxxx"
+* Create a test payment and check the webhook payload in your logs (`npx wrangler tail`)
+* Confirm the webhook payload includes `order_id` and that it matches your POS format (e.g., `POS-xxxxx`)
 
 ---
 
@@ -553,7 +548,7 @@ npx wrangler deploy
    * API key doesn't have access to this transaction
    * Transaction was on a different SindiPay account
 
-**Fix**: If payment was completed but not found, contact SindiPay support with the payment_id from the URL.
+**Fix**: If payment was completed but not found, contact SindiPay support with the `payment_id` from the URL.
 
 ---
 
@@ -683,26 +678,6 @@ Found a bug or have a feature request? Please:
 2. Provide detailed description
 3. Include reproduction steps
 4. Add error messages/screenshots if applicable
-
----
-
-## 📝 Recent Updates
-
-### v1.1.1 (26.12.2025 December 2025)
-
-* ✅ **Receipt URL privacy**: customer name/email are no longer exposed in `/success` URL query parameters
-* ✅ **Still shareable receipts**: the receipt link remains usable across browsers/devices while PII stays hidden in an encrypted token
-* ✅ **No database required**: kept the worker stateless; uses existing `WEBHOOK_SECRET`
-* ✅ **Cross-check on decrypt**: when the token is decrypted, the worker verifies the `oid` (Order ID) inside the encrypted blob matches the `oid` in the URL
-* ✅ **Random order IDs**: introduces a `generateRandomString()` helper to create random `order_id` values (example: `POS-aB12...`)
-* ✅ **Cleaner config**: groups merchant settings into a single `config` object at the start of each request (logo/name/email/whatsapp, etc.)
-
-### v1.1.0 (24.12.2025 December 2025)
-
-* ✅ **Fixed Discord timestamp display** - Now correctly shows transaction time in GMT+3
-* ✅ **Fixed Discord Order ID** - Now shows POS order IDs (POS-xxxxx) instead of internal payment IDs
-* ✅ **Improved timestamp parsing** - Supports Unix timestamps (seconds/milliseconds), ISO 8601, and automatic fallback
-* ✅ **Enhanced error handling** - Better timezone support and date validation
 
 ---
 
