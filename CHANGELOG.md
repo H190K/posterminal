@@ -6,6 +6,20 @@ This file is a **quick index** of what changed between versions. For full detail
 
 ## v1.1.4 (02.01.2026)
 
+* ✅ **Security hardening**: integrated comprehensive security features from reference implementation:
+  * Added `escapeHtml()` and `escapeHtmlAttr()` functions to prevent XSS attacks
+  * Wrapped all user variables in HTML templates with escape functions
+  * Centralized contact buttons via `getContactButtons()` helper with proper escaping
+  * Fixed `escapeXml()` function with correct HTML entity encoding (&amp;, &lt;, &gt;, &quot;, &#39;)
+* ✅ **Config structure alignment**: unified config object to match Pro implementation:
+  * Replaced hardcoded config with `buildMerchantConfig(env)` helper function
+  * Renamed `merchantName` → `name` throughout codebase
+  * Renamed `merchantFavicon` → `logo` throughout codebase
+  * Renamed `merchantEmail` → `email` throughout codebase
+  * Renamed `merchantWhatsapp` → `whatsapp` throughout codebase
+  * Added `defaultPlaceholderLogo()` function to generate SVG logos with merchant initials
+  * Added `escapeXml()` function for SVG text node escaping
+  * Added `escapeJsString()` function for JavaScript template literal escaping
 * ✅ **Canvas rendering improvements**: aligned canvas receipt generation with reference implementation:
   * Icon position adjusted for better centering
   * Row alignment updated (values aligned at x=620)
@@ -25,7 +39,13 @@ This file is a **quick index** of what changed between versions. For full detail
 * ✅ **Function signature alignment**: aligned HTML function signatures with reference implementation:
   * `getSharePageHTML(amount, qrUrl, subLink, config, paymentTitle)`
   * `getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, config, userTitleOverride)`
-* ✅ **WhatsApp behavior preserved**: maintained number-only input for WhatsApp (config.merchantWhatsapp used directly in wa.me link)
+* ✅ **WhatsApp behavior preserved**: maintained number-only input for WhatsApp (config.whatsapp used directly in wa.me link)
+* ✅ **Enhanced security verification**: all Pro security features now implemented:
+  * XSS prevention via `escapeHtml()` and `escapeHtmlAttr()` functions
+  * Token hardening with "v1." prefix in `encryptPII()` and `decryptPII()`
+  * Cross-check logic in `/success` route (token.oid vs URL oid)
+  * Contact buttons helper function used in all 8 error scenarios
+  * Payment data validation against receipt signatures
 
 ---
 

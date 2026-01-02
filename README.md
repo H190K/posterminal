@@ -61,7 +61,7 @@ We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment
 
 ### ⚙️ Customization
 
-* **Branding Support** - Unified `config` object manages merchant name, email, WhatsApp, and favicon.
+* **Branding Support** - Unified `config` object manages merchant name, email, WhatsApp, and logo.
 * **Smart Overrides**: Support for `SINDIPAY_TLD_OVERRIDE` and `SINDIPAY_API_KEY_OVERRIDE` for safe local testing without modifying secrets.
 * **Email Integration** - Optional client-side email receipt functionality.
 * **WhatsApp Integration** - Direct support link using the `MERCHANT_WHATSAPP` number.
@@ -347,23 +347,34 @@ In the Cloudflare Dashboard:
 * **Secure Flag**: HTTPS-only transmission
 * **SameSite=Strict**: CSRF protection
 
+### XSS Protection & Input Sanitization
+
+* **HTML Escaping**: All user variables in HTML templates are escaped with `escapeHtml()` to prevent XSS attacks
+* **Attribute Escaping**: HTML attributes use `escapeHtmlAttr()` for safe rendering in form fields and URLs
+* **XML/SVG Escaping**: SVG text nodes use `escapeXml()` with proper HTML entity encoding (&amp;, &lt;, &gt;, &quot;, &#39;)
+* **JavaScript Escaping**: Template literals use `escapeJsString()` to prevent code injection
+* **Centralized Contact Buttons**: All error page contact buttons use `getContactButtons()` with proper escaping
+
 ### Link Security
 
 * **HMAC-SHA256 Signatures**: Cryptographic validation
 * **Timestamp Validation**: Prevents replay attacks
-* **Context Separation**: Different signatures for different purposes
+* **Context Separation**: Different signatures for different purposes (PAY/RCT)
 * **URL Parameter Binding**: Any modification breaks signature
+* **Token Versioning**: Encrypted tokens use "v1." prefix for future compatibility
 
 ### Webhook Security
 
 * **Secret Validation**: Only authenticated webhooks processed
 * **Request Verification**: Validates request source
 
-### Data Protection
+### Data Protection & Cross-Validation
 
 * **No Database Required**: Stateless architecture
 * **Minimal Data Storage**: No persistent customer data
 * **Gateway Verification**: All payments verified with source
+* **Receipt Cross-Check**: `/success` route validates token.oid matches URL oid
+* **Payment Data Validation**: Receipt signatures validated against payment data
 
 ---
 

@@ -28,6 +28,55 @@ const buildPaymentTitle = (merchantName, titleOverride) => {
   return `${left} - ${merchant}`.trim();
 };
 
+function buildMerchantConfig(env) {
+  const name = (env.MERCHANT_NAME || "POS").toString();
+  const logo = (env.MERCHANT_FAVICON || "").toString().trim() || defaultPlaceholderLogo(name);
+
+  return {
+    name,
+    logo,
+    whatsapp: (env.MERCHANT_WHATSAPP || "").toString().trim(),
+    email: (env.MERCHANT_EMAIL || "").toString().trim(),
+    terminalPassword: env.TERMINAL_PASSWORD || "",
+    webhookSecret: env.WEBHOOK_SECRET || "",
+    apiKey: (env.API_KEY || "").toString(),
+    discordWebhookUrl: env.DISCORD_WEBHOOK_URL || "",
+    tz: "Asia/Baghdad",
+  };
+}
+
+function getContactButtons(config, subjectEncoded) {
+  const btns = [];
+
+  if (config.email) {
+    btns.push(
+      `<button onclick="location.href='mailto:${escapeHtmlAttr(config.email)}?subject=${subjectEncoded}'">Email Merchant</button>`
+    );
+  }
+  if (config.whatsapp) {
+    btns.push(
+      `<button style="background:#25D366; color:#fff; margin-top:10px;" onclick="location.href='https://wa.me/${escapeHtmlAttr(
+        config.whatsapp
+      )}'">WhatsApp Merchant</button>`
+    );
+  }
+
+  return btns.join("");
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escapeHtmlAttr(s) {
+  return escapeHtml(s);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -50,18 +99,8 @@ export default {
     // ✅ new in 1.1.1+
     // Group merchant settings in ONE place (clean + consistent fallback)
     // -----------------------------
-    const config = {
-      merchantName: env.MERCHANT_NAME || "POS",
-      merchantEmail: env.MERCHANT_EMAIL || "",
-      merchantWhatsapp: env.MERCHANT_WHATSAPP || "",
-      merchantFavicon: env.MERCHANT_FAVICON || "https://via.placeholder.com/180x180/000000/FFFFFF/?text=POS",
-      terminalPassword: env.TERMINAL_PASSWORD || "",
-      webhookSecret: env.WEBHOOK_SECRET || "",
-      apiKey: apiKey,
-      discordWebhookUrl: env.DISCORD_WEBHOOK_URL || "",
-      tz: "Asia/Baghdad",
-      sindipayBase: sindipayBase,
-    };
+    const config = buildMerchantConfig(env);
+    config.sindipayBase = sindipayBase;
 
     // -----------------------------
     // Helpers
@@ -124,12 +163,18 @@ export default {
       const packed = new Uint8Array(iv.length + ciphertext.byteLength);
       packed.set(iv, 0);
       packed.set(new Uint8Array(ciphertext), iv.length);
-      return toBase64Url(packed);
+      return `v1.${toBase64Url(packed)}`;
     };
 
     const decryptPII = async (token) => {
+      const raw = (token || "").trim();
+      if (!raw) throw new Error("Missing token");
+
+      let payload = raw;
+      if (payload.startsWith("v1.")) payload = payload.slice(3);
+
       const key = await deriveAesKey();
-      const packed = fromBase64Url(token);
+      const packed = fromBase64Url(payload);
       if (packed.length < 13) throw new Error("Invalid token");
       const iv = packed.slice(0, 12);
       const ciphertext = packed.slice(12);
@@ -183,19 +228,19 @@ export default {
         const cPay = await encryptPII({ name, email, title: titleOverride });
 
         // Sign without exposing name/email/title
-        const dataToSign = `amount=${amount}&c=${cPay}&time=${timestamp}`;
+        const dataToSign = `amount=${amount}&time=${timestamp}&c=${cPay}`;
         const signature = await generateSignature(dataToSign, "PAY");
 
         const subLink =
           `${url.origin}/pay?amt=${amount}` +
-          `&c=${encodeURIComponent(cPay)}` +
           `&time=${timestamp}` +
+          `&c=${encodeURIComponent(cPay)}` +
           `&sig=${signature}`;
 
         const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=450x450&data=${encodeURIComponent(subLink)}`;
 
         // Share title (default/override + merchant)
-        const shareTitle = buildPaymentTitle(config.merchantName, titleOverride);
+        const shareTitle = buildPaymentTitle(config.name, titleOverride);
 
         return new Response(getSharePageHTML(amount, qrCodeUrl, subLink, config, shareTitle), {
           headers: { "Content-Type": "text/html; charset=UTF-8" }
@@ -210,30 +255,18 @@ export default {
 
         if (Date.now() - parseInt(time) > TIME_PAY_LINK) {
           const subject = encodeURIComponent("About Expired Payment Link");
-          const emailBtn = config.merchantEmail
-            ? `<button onclick="location.href='mailto:${config.merchantEmail}?subject=${subject}'">Email Merchant</button>`
-            : "";
-          const waBtn = config.merchantWhatsapp
-            ? `<button style="background:#25D366; color:#fff; margin-top:10px;" onclick="location.href='https://wa.me/${config.merchantWhatsapp}'">WhatsApp Merchant</button>`
-            : "";
-          return new Response(getErrorHTML("Link Expired.<br>This payment link is over 30 minutes old.", emailBtn + waBtn, config), {
+          return new Response(getErrorHTML("Link Expired.<br>This payment link is over 30 minutes old.", getContactButtons(config, subject), config), {
             headers: { "Content-Type": "text/html" }
           });
         }
 
         // Verify signature without name/email/title
-        const dataToCheck = `amount=${amount}&c=${cPay}&time=${time}`;
+        const dataToCheck = `amount=${amount}&time=${time}&c=${cPay}`;
         const expectedSig = await generateSignature(dataToCheck, "PAY");
 
         if (!providedSig || providedSig !== expectedSig) {
           const subject = encodeURIComponent("Security Issue - Invalid Payment Link");
-          const emailBtn = config.merchantEmail
-            ? `<button onclick="location.href='mailto:${config.merchantEmail}?subject=${subject}'">Email Merchant</button>`
-            : "";
-          const waBtn = config.merchantWhatsapp
-            ? `<button style="background:#25D366; color:#fff; margin-top:10px;" onclick="location.href='https://wa.me/${config.merchantWhatsapp}'">WhatsApp Merchant</button>`
-            : "";
-          return new Response(getErrorHTML("Security Check Failed.<br>Invalid or tampered link.", emailBtn + waBtn, config), {
+          return new Response(getErrorHTML("Security Check Failed.<br>Invalid or tampered link.", getContactButtons(config, subject), config), {
             headers: { "Content-Type": "text/html" }
           });
         }
@@ -251,13 +284,7 @@ export default {
           }
         } catch (e) {
           const subject = encodeURIComponent("Security Issue - Invalid Token");
-          const emailBtn = config.merchantEmail
-            ? `<button onclick="location.href='mailto:${config.merchantEmail}?subject=${subject}'">Email Merchant</button>`
-            : "";
-          const waBtn = config.merchantWhatsapp
-            ? `<button style="background:#25D366; color:#fff; margin-top:10px;" onclick="location.href='https://wa.me/${config.merchantWhatsapp}'">WhatsApp Merchant</button>`
-            : "";
-          return new Response(getErrorHTML("Security Check Failed.<br>Invalid customer token.", emailBtn + waBtn, config), {
+          return new Response(getErrorHTML("Security Check Failed.<br>Invalid customer token.", getContactButtons(config, subject), config), {
             headers: { "Content-Type": "text/html" }
           });
         }
@@ -269,13 +296,13 @@ export default {
         const oid = `POS-${generateRandomString(8)}`;
 
         // ✅ Final payment title (default/override + merchant)
-        const paymentTitle = buildPaymentTitle(config.merchantName, titleOverride);
+        const paymentTitle = buildPaymentTitle(config.name, titleOverride);
 
         // ✅ Encrypt PII + oid + title into token `c`
         const c = await encryptPII({ oid, name, email, title: titleOverride });
 
-        // ✅ Sign receipt using oid + token `c`
-        const receiptData = `oid=${oid}&c=${c}&time=${receiptTime}&ts=${paymentTimestamp}`;
+        // ✅ Sign receipt using oid
+        const receiptData = `oid=${oid}&time=${receiptTime}&ts=${paymentTimestamp}`;
         const receiptSig = await generateSignature(receiptData, "RCT");
 
         // ✅ Sanitized success URL (NO name/email)
@@ -304,7 +331,7 @@ export default {
             "X-API-Key": config.apiKey,
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "User-Agent": `${config.merchantName}-POS/1.1.1`,
+            "User-Agent": `${config.name}-POS/1.1.1`,
             "Referer": `${config.sindipayBase}/`
           },
           body: JSON.stringify({
@@ -347,63 +374,48 @@ export default {
 
         if (Date.now() - parseInt(time) > TIME_RECEIPT) {
           const subject = encodeURIComponent("About Receipt " + paymentId);
-          const emailBtn = config.merchantEmail
-            ? `<button onclick="location.href='mailto:${config.merchantEmail}?subject=${subject}'">Email Merchant</button>`
-            : "";
-          const waBtn = config.merchantWhatsapp
-            ? `<button style="background:#25D366; color:#fff; margin-top:10px;" onclick="location.href='https://wa.me/${config.merchantWhatsapp}'">WhatsApp Merchant</button>`
-            : "";
-          return new Response(getErrorHTML("Receipt Expired.<br>This receipt is older than 48 hours.", emailBtn + waBtn, config), {
+          return new Response(getErrorHTML("Receipt Expired.<br>This receipt is older than 48 hours.", getContactButtons(config, subject), config), {
             headers: { "Content-Type": "text/html" }
           });
         }
 
-        // ✅ Verify signature using oid + token `c`
-        const dataToCheck = `oid=${oid}&c=${c}&time=${time}&ts=${paymentTimestamp}`;
+        // ✅ Verify signature using oid
+        const dataToCheck = `oid=${oid}&time=${time}&ts=${paymentTimestamp}`;
         const expectedSig = await generateSignature(dataToCheck, "RCT");
 
         if (!providedSig || providedSig !== expectedSig) {
           const subject = encodeURIComponent("Security Issue - Invalid Receipt");
-          const emailBtn = config.merchantEmail
-            ? `<button onclick="location.href='mailto:${config.merchantEmail}?subject=${subject}'">Email Merchant</button>`
-            : "";
-          const waBtn = config.merchantWhatsapp
-            ? `<button style="background:#25D366; color:#fff; margin-top:10px;" onclick="location.href='https://wa.me/${config.merchantWhatsapp}'">WhatsApp Merchant</button>`
-            : "";
-          return new Response(getErrorHTML("Security Warning.<br>Invalid receipt signature.", emailBtn + waBtn, config), {
+          return new Response(getErrorHTML("Security Warning.<br>Invalid receipt signature.", getContactButtons(config, subject), config), {
             headers: { "Content-Type": "text/html" }
           });
         }
 
         // ✅ Decrypt token to show name/email/title on the receipt page
         // ✅ Cross-check: token.oid must match URL oid
+        let tokenObj = null;
         let userName = "";
         let userEmail = "";
         let userTitleOverride = "";
         try {
           if (c) {
-            const pii = await decryptPII(c);
-            const tokenOid = pii?.oid || "";
+            tokenObj = await decryptPII(c);
+            const tokenOid = (tokenObj && typeof tokenObj.oid === "string" && tokenObj.oid) ? tokenObj.oid : "";
 
-            // ✅ Cross-check requested
+            // ✅ Cross-check: token.oid must match URL oid
             if (tokenOid && oid && tokenOid !== oid) {
-              const subject = encodeURIComponent("Security Issue - Receipt Cross-Check Failed");
-              const emailBtn = config.merchantEmail
-                ? `<button onclick="location.href='mailto:${config.merchantEmail}?subject=${subject}'">Email Merchant</button>`
-                : "";
-              const waBtn = config.merchantWhatsapp
-                ? `<button style="background:#25D366; color:#fff; margin-top:10px;" onclick="location.href='https://wa.me/${config.merchantWhatsapp}'">WhatsApp Merchant</button>`
-                : "";
-              return new Response(getErrorHTML("Security Warning.<br>Receipt cross-check failed.", emailBtn + waBtn, config), {
+              const subject = encodeURIComponent("Security Issue - Receipt Token Mismatch");
+              return new Response(getErrorHTML("Security Warning.<br>Receipt token does not match this Order ID.", getContactButtons(config, subject), config), {
+                status: 403,
                 headers: { "Content-Type": "text/html" }
               });
             }
 
-            userName = pii?.name || "";
-            userEmail = pii?.email || "";
-            userTitleOverride = pii?.title || "";
+            userName = (tokenObj?.name || "").toString();
+            userEmail = (tokenObj?.email || "").toString();
+            userTitleOverride = (tokenObj?.title || "").toString();
           }
         } catch (e) {
+          tokenObj = null;
           userName = "";
           userEmail = "";
           userTitleOverride = "";
@@ -413,25 +425,29 @@ export default {
           method: "GET",
           headers: {
             "X-API-Key": config.apiKey,
-            "User-Agent": `${config.merchantName}-POS/1.1.1`,
+            "User-Agent": `${config.name}-POS/1.1.1`,
             "Accept": "application/json"
           }
         });
 
         if (!checkResponse.ok) {
           const subject = encodeURIComponent("About Receipt " + paymentId);
-          const emailBtn = config.merchantEmail
-            ? `<button onclick="location.href='mailto:${config.merchantEmail}?subject=${subject}'">Email Merchant</button>`
-            : "";
-          const waBtn = config.merchantWhatsapp
-            ? `<button style="background:#25D366; color:#fff; margin-top:10px;" onclick="location.href='https://wa.me/${config.merchantWhatsapp}'">WhatsApp Merchant</button>`
-            : "";
-          return new Response(getErrorHTML("Transaction Not Found.<br>Invalid Payment ID.", emailBtn + waBtn, config), {
+          return new Response(getErrorHTML("Transaction Not Found.<br>Invalid Payment ID.", getContactButtons(config, subject), config), {
             headers: { "Content-Type": "text/html" }
           });
         }
 
         const paymentData = await checkResponse.json();
+
+        // ✅ Optional safety: ensure payment matches oid
+        const returnedOid = paymentData.order_id || "";
+        if (oid && returnedOid && oid !== returnedOid) {
+          const subject = encodeURIComponent("Security Issue - Receipt Mismatch");
+          return new Response(getErrorHTML("Security Warning.<br>Receipt does not match this transaction.", getContactButtons(config, subject), config), {
+            headers: { "Content-Type": "text/html" }
+          });
+        }
+
         const status = paymentData.status || "FAILED";
         const amount = paymentData.total_amount || "0";
         const orderId = paymentData.order_id || oid || paymentId;
@@ -455,7 +471,7 @@ export default {
         // ✅ RTL wrap if Arabic
         const clientName = applyRtlWrap(rawClientName);
         const clientEmail = applyRtlWrap(rawClientEmail);
-        const paymentTitle = applyRtlWrap(rawTitle || buildPaymentTitle(config.merchantName, ""));
+        const paymentTitle = applyRtlWrap(rawTitle || buildPaymentTitle(config.name, ""));
 
         const isPaid = data.status === "PAID";
         const icon = isPaid ? "✅" : "❌";
@@ -520,7 +536,7 @@ export default {
                   { name: "Email", value: clientEmail, inline: true },
                   { name: "Order ID", value: transactionId }
                 ],
-                footer: { text: config.merchantName || "POS System" },
+                footer: { text: config.name || "POS System" },
                 timestamp: new Date().toISOString()
               }]
             })
@@ -542,11 +558,11 @@ export default {
 // UI helpers (same UI, now uses config)
 // -----------------------------
 const getHeadMeta = (config) => {
-  const iconUrl = config.merchantFavicon;
+  const iconUrl = config.logo;
   return `
 <link rel="icon" type="image/png" href="${iconUrl}">
 <link rel="apple-touch-icon" href="${iconUrl}">
-<meta name="apple-mobile-web-app-title" content="${config.merchantName} Terminal">
+<meta name="apple-mobile-web-app-title" content="${config.name} Terminal">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#000000">
@@ -576,17 +592,18 @@ function getErrorHTML(msg, customAction, config) {
 }
 
 function getLoginHTML(config) {
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">${getHeadMeta(config)}<style>${STYLES}</style></head><body><div class="container"><div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">${config.merchantName} Auth</div><form action="/login" method="POST" style="width:100%"><input type="password" name="password" placeholder="Key" required autofocus><button type="submit">Unlock</button></form></div></body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">${getHeadMeta(config)}<style>${STYLES}</style></head><body><div class="container"><div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">${escapeHtml(config.name)} Auth</div><form action="/login" method="POST" style="width:100%"><input type="password" name="password" placeholder="Key" required autofocus><button type="submit">Unlock</button></form></div></body></html>`;
 }
 
 function getTerminalHTML(config) {
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">${getHeadMeta(config)}<style>${STYLES}</style></head><body><div class="container"><div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">${config.merchantName} POS Terminal</div><form action="/generate" method="POST" style="width:100%"><input type="number" name="amount" class="amount" placeholder="0" required autofocus inputmode="decimal"><input type="text" name="title" placeholder="Payment Title (Optional)"><input type="text" name="name" placeholder="Client Name (Optional)"><input type="email" name="email" placeholder="Client Email (Optional)"><button type="submit">Create Request</button></form></div></body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">${getHeadMeta(config)}<style>${STYLES}</style></head><body><div class="container"><div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">${escapeHtml(config.name)} POS Terminal</div><form action="/generate" method="POST" style="width:100%"><input type="number" name="amount" class="amount" placeholder="0" required autofocus inputmode="decimal"><input type="text" name="title" placeholder="Payment Title (Optional)"><input type="text" name="name" placeholder="Client Name (Optional)"><input type="email" name="email" placeholder="Client Email (Optional)"><button type="submit">Create Request</button></form></div></body></html>`;
 }
 
 function getSharePageHTML(amount, qrUrl, subLink, config, paymentTitle) {
   const safeTitle = (paymentTitle || "Payment").toString().replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   const safeLink = (subLink || "").toString().replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES} .qr-box{background:#fff; padding:15px; border-radius:20px; margin-bottom:40px;} img{display:block; width:220px; height:220px;}</style></head><body><div class="container"><div style="font-size:48px; font-weight:200; margin-bottom:40px;">${amount}</div><div class="qr-box"><img src="${qrUrl}"></div><button onclick="doShare()">Share Link</button><button style="background:transparent; color:#fff; border:1px solid var(--border); margin-top:10px;" onclick="doCopy()">Copy Link</button><a href="/" style="color:var(--sub); text-decoration:none; font-size:11px; margin-top:30px; text-transform:uppercase;">Cancel</a></div><script> function showAlert(msg) { const alert = document.createElement('div'); alert.className = 'alert'; alert.textContent = msg; document.body.appendChild(alert); setTimeout(() => alert.remove(), 2500); } function doShare(){ if(navigator.share){navigator.share({title:'${safeTitle}', url:'${safeLink}'});}else{doCopy();} } function doCopy(){ navigator.clipboard.writeText('${safeLink}'); showAlert('Link Copied!'); } </script></body></html>`;
+  const safeAmount = escapeHtml(amount);
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES} .qr-box{background:#fff; padding:15px; border-radius:20px; margin-bottom:40px;} img{display:block; width:220px; height:220px;}</style></head><body><div class="container"><div style="font-size:48px; font-weight:200; margin-bottom:40px;">${safeAmount}</div><div class="qr-box"><img src="${qrUrl}"></div><button onclick="doShare()">Share Link</button><button style="background:transparent; color:#fff; border:1px solid var(--border); margin-top:10px;" onclick="doCopy()">Copy Link</button><a href="/" style="color:var(--sub); text-decoration:none; font-size:11px; margin-top:30px; text-transform:uppercase;">Cancel</a></div><script> function showAlert(msg) { const alert = document.createElement('div'); alert.className = 'alert'; alert.textContent = msg; document.body.appendChild(alert); setTimeout(() => alert.remove(), 2500); } function doShare(){ if(navigator.share){navigator.share({title:'${safeTitle}', url:'${safeLink}'});}else{doCopy();} } function doCopy(){ navigator.clipboard.writeText('${safeLink}'); showAlert('Link Copied!'); } </script></body></html>`;
 }
 
 function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, config, userTitleOverride) {
@@ -594,18 +611,18 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, co
   const icon = isPaid ? "✓" : "✕";
   const color = isPaid ? "#4CAF50" : "#ff4444";
 
-  const merchantName = config.merchantName || "Merchant";
-  const merchantEmail = config.merchantEmail || "";
+  const merchantName = config.name || "Merchant";
+  const merchantEmail = config.email || "";
 
   // ✅ Final receipt title (default/override + merchant)
   const receiptTitle = buildPaymentTitle(merchantName, userTitleOverride);
 
   const titleRow = receiptTitle
-    ? `<div class="row"><span>Title</span><span class="val">${receiptTitle}</span></div>`
+    ? `<div class="row"><span>Title</span><span class="val">${escapeHtml(receiptTitle)}</span></div>`
     : "";
 
-  const nameRow = userName ? `<div class="row"><span>Customer</span><span class="val">${userName}</span></div>` : "";
-  const emailRow = userEmail ? `<div class="row"><span>Email</span><span class="val" style="font-size:12px;">${userEmail}</span></div>` : "";
+  const nameRow = userName ? `<div class="row"><span>Customer</span><span class="val">${escapeHtml(userName)}</span></div>` : "";
+  const emailRow = userEmail ? `<div class="row"><span>Email</span><span class="val" style="font-size:12px;">${escapeHtml(userEmail)}</span></div>` : "";
 
   let dateStr = "";
   if (timestamp) {
@@ -621,10 +638,10 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, co
   }
 
   const timestampRow = dateStr
-    ? `<div class="row"><span>Date & Time<br>(GMT+3)</span><span class="val" style="font-size:11px;">${dateStr}</span></div>`
+    ? `<div class="row"><span>Date & Time<br>(GMT+3)</span><span class="val" style="font-size:11px;">${escapeHtml(dateStr)}</span></div>`
     : "";
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES}</style></head><body> <canvas id="receiptCanvas" style="display:none;"></canvas> <div class="container"> <div class="receipt-card" id="receiptCard"> <div style="font-size:60px;margin-bottom:20px;color:${color}">${icon}</div> ${titleRow} ${nameRow} ${emailRow} <div class="row"><span>Amount</span><span class="val">${amt} IQD</span></div> <div class="row"><span>Order ID</span><span class="val">${id}</span></div> ${timestampRow} <div class="row"><span>Status</span><span class="val" style="color:${color}">${String(status).toUpperCase()}</span></div> <div style="margin-top:30px;padding-top:20px;border-top:1px solid var(--border);color:var(--sub);font-size:12px;font-weight:600;">Merchant ${merchantName}</div> </div> ${merchantEmail ? `<button onclick="sendEmail()">Email Receipt</button>` : ""} <button style="background:transparent; color:#fff; border:1px solid var(--border);" onclick="shareGeneral()">Share Receipt</button> </div> <script>
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES}</style></head><body> <canvas id="receiptCanvas" style="display:none;"></canvas> <div class="container"> <div class="receipt-card" id="receiptCard"> <div style="font-size:60px;margin-bottom:20px;color:${color}">${icon}</div> ${titleRow} ${nameRow} ${emailRow} <div class="row"><span>Amount</span><span class="val">${escapeHtml(amt)} IQD</span></div> <div class="row"><span>Order ID</span><span class="val">${escapeHtml(id)}</span></div> ${timestampRow} <div class="row"><span>Status</span><span class="val" style="color:${color}">${escapeHtml(String(status).toUpperCase())}</span></div> <div style="margin-top:30px;padding-top:20px;border-top:1px solid var(--border);color:var(--sub);font-size:12px;font-weight:600;">Merchant ${escapeHtml(merchantName)}</div> </div> ${merchantEmail ? `<button onclick="sendEmail()">Email Receipt</button>` : ""} <button style="background:transparent; color:#fff; border:1px solid var(--border);" onclick="shareGeneral()">Share Receipt</button> </div> <script>
   const receiptData = {
     title: ${JSON.stringify(String(receiptTitle || ""))},
     id: ${JSON.stringify(String(id || ""))},
@@ -844,4 +861,47 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, co
     }
   }
   </script></body></html>`;
+}
+
+// ------------------------------------------------------------
+// Default placeholder logo (generates SVG with merchant initial)
+// ------------------------------------------------------------
+function defaultPlaceholderLogo(name) {
+  const initial = (name || "M").trim().slice(0, 1).toUpperCase() || "M";
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#111"/>
+          <stop offset="1" stop-color="#000"/>
+        </linearGradient>
+      </defs>
+      <rect width="256" height="256" rx="56" fill="url(#g)"/>
+      <circle cx="128" cy="128" r="92" fill="#0b0b0b" stroke="#222" stroke-width="4"/>
+      <text x="128" y="150" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="120" font-weight="800" fill="#fff">${escapeXml(
+        initial
+      )}</text>
+    </svg>
+  `.trim();
+
+  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+}
+
+// ------------------------------------------------------------
+// XML escape helper (for SVG text nodes)
+// ------------------------------------------------------------
+function escapeXml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// ------------------------------------------------------------
+// JavaScript string escape helper (for embedding in JS templates)
+// ------------------------------------------------------------
+function escapeJsString(s) {
+  return String(s).replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$/g, "\\$");
 }
