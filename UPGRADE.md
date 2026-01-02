@@ -4,9 +4,6 @@
 
 ---
 
-## Upgrading from v1.1.4 to v1.1.5
-
----
 
 ## Upgrading from v1.1.4 to v1.1.5
 
