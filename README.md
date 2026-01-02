@@ -2,6 +2,7 @@
 
 <div align="center">
 
+[![Version](https://img.shields.io/badge/version-v1.1.5-blue?style=for-the-badge)](CHANGELOG.md)
 <a href="https://developers.cloudflare.com/workers/"><img src="https://img.shields.io/badge/Cloudflare-Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" /></a> <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript"><img src="https://img.shields.io/badge/JavaScript-ES2023-yellow?style=for-the-badge&logo=javascript&logoColor=white" /></a> <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-Runtime-339933?style=for-the-badge&logo=node.js&logoColor=Yellow" /></a> <a href="https://sindipay.com/en/"><img src="https://img.shields.io/badge/Payments-SindiPay-0052cc?style=for-the-badge&logo=creditcard&logoColor=white" /></a> <a href="https://discord.com/"><img src="https://img.shields.io/badge/Notifications-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" /></a>
 
 </div>
@@ -55,6 +56,7 @@ We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment
 10. [📄 License](#-license)
 11. [💖 Support](#-support-the-project)
 12. [🙏 Acknowledgments](#-acknowledgments)
+13. [📝 Updates](#-updates)
 
 ---
 
@@ -658,6 +660,12 @@ If my projects make your life easier, consider supporting development. Your supp
 - [Cloudflare Workers](https://developers.cloudflare.com/workers/) for the amazing serverless platform
 - [SindiPay](https://sindipay.com/en/) for the robust payment infrastructure
 - [Discord](https://discord.com/) for the excellent notification platform
+
+---
+
+## 📝 Updates
+
+For any updates, changes, and version history, please see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
