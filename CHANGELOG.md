@@ -24,7 +24,7 @@ This file is a **quick index** of what changed between versions. For full detail
 * **Webhook URL Sanitization**: Removed insecure `?secret=` parameters and PII from URLs:
   * Customer data moved to encrypted `c=` tokens
   * HMAC-based signature authentication instead of query parameters
-* **Discord Mention Protection**: Added `allowed_mentions: { parse: [] }` to prevent @everyone/@here abuse
+* **Discord Mention Protection**: Added `allowed_mentions: { parse: [] }` to prevent  `@everyone`/`@here`  abuse
 
 ### ⚙️ Config Changes
 
