@@ -16,6 +16,8 @@ We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment
 > This repo may use **`sindipay.xyz`** in code examples for **testing/sandbox** purposes.
 > For **production/live payments**, you should switch back to **`sindipay.com`**.
 
+> **Upgrading from a previous version?** See [UPGRADE.md](UPGRADE.md) for step-by-step migration instructions.
+
 ---
 
 ## 📋 Table of Contents

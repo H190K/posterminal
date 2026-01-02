@@ -24,12 +24,12 @@
   "license": "Custom",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/cloudflare-pos-terminal.git"
+    "url": "https://github.com/h190k/posterminal.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/cloudflare-pos-terminal/issues"
+    "url": "https://github.com/h190k/posterminal/issues"
   },
-  "homepage": "https://github.com/yourusername/cloudflare-pos-terminal#readme",
+  "homepage": "https://github.com/h190k/posterminal#readme",
   "devDependencies": {
     "wrangler": "^3.0.0"
   },
