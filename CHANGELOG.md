@@ -47,7 +47,9 @@ This file is a **quick index** of what changed between versions. For full detail
 
 ### 📝 Documentation Updates
 
+* **Route Alignment**: Synchronized API route names in README with actual implementation (`/login`, `/generate`)
 * **Enhanced README**: Added comprehensive Security, Webhook Setup, and Upgrade Notes sections
+* **Improved Navigation**: Converted Table of Contents to a numbered list and integrated Developer Overrides
 * **Environment Variables**: Complete table with all variables, requirements, and fallback behavior
 * **Webhook Configuration**: Detailed setup instructions and testing examples
 * **Upgrade Guide**: Step-by-step migration instructions for v1.1.5

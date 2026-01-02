@@ -17,6 +17,84 @@ We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment
 
 ---
 
+## 📋 Table of Contents
+
+1. [🚀 Quick Start](#-quick-start)
+   1. [Step 1: Clone](#step-1-clone-the-repository)
+   2. [Step 2: Prerequisites](#step-2-prerequisites)
+   3. [Step 3: Configuration](#step-3-configure-environment-variables)
+   4. [Step 4: Deploy](#step-4-deploy)
+2. [🌟 Key Features](#-key-features)
+   1. [🔐 Security](#-security)
+   2. [💳 Payments](#-payment-processing)
+   3. [📱 UX/UI](#-user-experience)
+   4. [🔔 Notifications](#-notifications)
+3. [⚙️ Configuration](#%EF%B8%8F-configuration)
+   1. [Environment Variables](#%EF%B8%8F-environment-variables)
+   2. [Favicon Setup](#-favicon-implementation-note)
+   3. [Customization](#%EF%B8%8F-customization)
+   4. [Timezone](#timezone-configuration)
+4. [📖 Usage Guide](#-usage-guide)
+   1. [1. Dashboard Login](#1-dashboard-login)
+   2. [2. Creating Payment Links](#2-creating-payment-links)
+   3. [3. Customer Payment Flow](#3-customer-payment-flow)
+   4. [4. Receipt Access](#4-receipt-access)
+   5. [5. Developer Overrides (Optional)](#5-developer-overrides-optional)
+5. [🏗 Architecture & Security Logic](#-architecture--security-logic)
+   1. [HMAC Signatures](#digital-signatures-hmac)
+   2. [Split Secrets](#split-secret-architecture)
+   3. [Session Security](#session-security)
+   4. [PII Privacy](#receipt--link-privacy-aes-gcm)
+   5. [Webhook Verification](#webhook-verification-flow)
+6. [🔒 Security Features](#-security-features)
+   1. [Webhook Sanitization](#webhook-url-sanitization)
+   2. [Discord Notifications](#discord-webhook-configuration)
+7. [🛣 API Routes](#-api-routes)
+8. [🔧 Troubleshooting](#-troubleshooting)
+9. [🤝 Contributing](#-contributing)
+10. [📄 License](#-license)
+11. [💖 Support](#-support-the-project)
+12. [🙏 Acknowledgments](#-acknowledgments)
+
+---
+
+## 🚀 Quick Start
+
+### Step 1: Clone the Repository
+
+```bash
+git clone https://github.com/h190k/posterminal.git
+cd posterminal
+```
+
+### Step 2: Prerequisites
+
+1. **Cloudflare Account**: [Sign up](https://dash.cloudflare.com/sign-up/workers)
+2. **Wrangler CLI**: Install with `npm install -g wrangler`
+3. **SindiPay Account**: [Get your API key](https://sindipay.com/dashboard)
+
+### Step 3: Configure Environment Variables
+
+```bash
+# Set required secrets
+npx wrangler secret put TERMINAL_PASSWORD
+npx wrangler secret put WEBHOOK_AUTH_SECRET
+npx wrangler secret put LINK_SIGNING_SECRET
+npx wrangler secret put PII_ENCRYPTION_SECRET
+npx wrangler secret put API_KEY
+
+# Set optional secrets
+npx wrangler secret put DISCORD_WEBHOOK_URL
+```
+
+### Step 4: Deploy
+
+```bash
+npx wrangler deploy
+```
+
+---
+
 ## 🌟 Key Features
 
 ### 🔐 Security
@@ -48,11 +126,11 @@ We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment
 * **PWA Ready** - Installable as a web app with custom icons and splash screens
 * **Dark Mode Design** - Modern dark theme optimized for OLED displays
 * **Digital Receipts** - Professional, brand-aware receipts:
-  * **High-Resolution PNG**: Generated on-the-fly using HTML5 Canvas.
-  * **Arabic/RTL Support**: Native rendering for Arabic titles and customer names (avoids character reversal).
+  * **Arabic/RTL Support**: Native rendering for Arabic titles and customer names on receipts and Discord (avoids character reversal).
+  * **High-Resolution PNG Receipts**: Generated on-the-fly using HTML5 Canvas for professional sharing.
   * **Brand Alignment**: Centered titles, centered merchant name, and "Thank you for your purchase" footer.
   * **RTL Wrapping**: Long titles wrap correctly while maintaining right-to-left flow.
-  * **Easy Sharing**: Native mobile sharing integration.
+  * **Easy Sharing**: Native mobile sharing integration for PNG receipts and text.
 * **Error Recovery** - Branding-consistent error pages with PWA icons and merchant contact options.
 
 ### 🔔 Notifications
@@ -65,143 +143,9 @@ We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment
 
 ---
 
-## 📋 Table of Contents
+## ⚙️ Configuration
 
-* [Architecture](#-architecture--security-logic)
-* [Environment Variables](#%EF%B8%8F-environment-variables)
-* [Customization](#-customization)
-* [Payment Flow](#payment-flow)
-* [Security Features](#-security-features)
-* [Webhook Setup](#-webhook-setup)
-* [Setup & Deployment](#-setup--deployment)
-* [Usage Guide](#-usage-guide)
-* [Upgrade Notes](#-upgrade-notes)
-* [API Routes](#-api-routes)
-* [Troubleshooting](#-troubleshooting)
-* [Contributing](#-contributing)
-* [Support the Project](#-support-the-project)
-* [License](#-license)
-
----
-
-## 🏗 Architecture & Security Logic
-
-### Digital Signatures (HMAC)
-
-The system uses `crypto.subtle` to generate **HMAC-SHA256** signatures for all sensitive URLs:
-
-```javascript
-// Signature format: HMAC-SHA256(TYPE-data, SECRET)
-// TYPE prefixes: "PAY" (Payment links) or "RCT" (Receipts) or "WEBHOOK" (Webhook validation)
-```
-
-**Benefits:**
-
-* **Tamper Protection**: Any change to URL parameters (amount, timestamp, encrypted data) invalidates the signature.
-* **Replay Protection**: Signatures are tied to unique timestamps and POS Order IDs.
-* **Context Separation**: Using unique prefixes (`PAY-`, `RCT-`, `WEBHOOK-`) ensures signatures cannot be reused across different contexts.
-
-### Split Secret Architecture
-
-The system uses **multiple specialized secrets** for different security purposes:
-
-| Secret | Purpose | Usage |
-|--------|---------|-------|
-| `WEBHOOK_AUTH_SECRET` | Webhook authentication and verification | Webhook route `/webhook` |
-| `LINK_SIGNING_SECRET` | Link signature signing and session tokens | Payment links `/create`, `/success` |
-| `PII_ENCRYPTION_SECRET` | PII encryption for customer data | Receipt privacy `/success` |
-| `TERMINAL_PASSWORD` | Dashboard authentication | Login route `/auth` |
-| `API_KEY` | SindiPay API authentication | Gateway API calls |
-
-### Session Security
-
-The system implements **signed session tokens** with HMAC-SHA256 signatures:
-
-```javascript
-// Session token format: {timestamp}|{random}.{signature}
-// Signed with: LINK_SIGNING_SECRET
-// Expiration: 2 minutes
-```
-
-**Benefits:**
-
-* **No Password Storage**: Dashboard password is never stored in cookies or session tokens
-* **Short Expiry**: Sessions automatically expire after 2 minutes
-* **Tamper Protection**: Any modification to the token invalidates it
-* **Stateless**: No server-side session storage required
-
-### Receipt & Link Privacy (AES-GCM)
-
-The system uses **stateless encryption** to protect Customer PII (Personally Identifiable Information):
-
-1. **Encryption**: Customer names, emails, and custom payment titles are encrypted using **AES-256-GCM** with a key derived from your `PII_ENCRYPTION_SECRET`.
-2. **Encrypted Token**: This data is passed in the URL as a base64url-encoded `c=` parameter.
-3. **Privacy**:
-   * ✅ Browser history and logs do **not** show customer names or emails in plain text.
-   * ✅ The digital receipt still displays all details after secure decryption.
-   * ✅ The system remains **stateless** (no database required to store customer info).
-
-### Webhook Verification Flow
-
-The system implements a **two-step verification** process for webhooks:
-
-1. **Signature Verification**: Validates the webhook signature using `WEBHOOK_AUTH_SECRET`
-2. **Gateway Verification**: Verifies payment status directly with SindiPay API
-
-**Why This Matters:**
-- ✅ **No Trust in Payload**: The system never trusts the webhook payload status
-- ✅ **Real-time Verification**: Always checks the actual payment status with the gateway
-- ✅ **Security First**: Invalid signatures are silently ignored
-- ✅ **Attack Prevention**: Prevents false notifications from malicious webhook calls
-
-### Security Layers
-
-1. **Authentication Layer** - Secure cookie-based session management with signed tokens
-2. **Signature Layer** - HMAC-SHA256 validation for all payment links and webhooks
-3. **Temporal Layer** - Time-based expiration for links and sessions
-4. **Webhook Layer** - Secret-based webhook authentication + gateway verification
-5. **Gateway Layer** - Real-time verification with payment gateway
-6. **Encryption Layer** - AES-GCM encryption for customer PII privacy
-
-### Payment Flow
-
-```mermaid
-sequenceDiagram
-    participant Admin
-    participant Worker
-    participant Customer
-    participant SindiPay
-    participant Discord
-
-    Admin->>Worker: Login with password
-    Worker->>Admin: Set secure cookie (2m expiry)
-    
-    Admin->>Worker: Create payment (amount, title, name, email)
-    Worker->>Worker: Encrypt PII (AES-GCM)
-    Worker->>Worker: Sign URL (HMAC-SHA256, PAY prefix)
-    Worker->>Admin: Return QR code page
-    
-    Customer->>Worker: Scan QR / Open link
-    Worker->>Worker: Verify PAY signature & expiry
-    Worker->>Worker: Decrypt PII for gateway
-    Worker->>SindiPay: Create payment order (POS-xxxxx)
-    SindiPay->>Customer: Redirect to payment page
-    
-    Customer->>SindiPay: Complete payment
-    SindiPay->>Worker: Webhook notification
-    Worker->>Worker: Verify webhook secret
-    Worker->>Discord: Send notification (RTL-wrapped for Arabic)
-    
-    SindiPay->>Customer: Redirect to success page
-    Customer->>Worker: Access receipt (via encrypted c token)
-    Worker->>Worker: Verify RCT signature & expiry
-    Worker->>SindiPay: Verify payment status (API)
-    Worker->>Customer: Render digital receipt (Canvas PNG)
-```
-
----
-
-## ⚙️ Environment Variables
+### ⚙️ Environment Variables
 
 Configure these in Cloudflare Workers as **Secrets** or in `wrangler.toml`:
 
@@ -368,6 +312,136 @@ The architecture supports multiple gateways. To add another:
 
 ---
 
+## 📖 Usage Guide
+
+### 1. Dashboard Login
+
+1. Navigate to your Worker URL
+2. Enter your terminal password
+3. You'll be redirected to the POS dashboard (session lasts 2 minutes)
+
+### 2. Creating Payment Links
+
+1. Enter payment amount (IQD)
+2. Enter optional payment title
+3. Enter customer name and email (optional)
+4. Click "Create Payment Link"
+5. Share the QR code with your customer
+
+### 3. Customer Payment Flow
+
+1. Customer scans QR code or opens link
+2. Customer is redirected to SindiPay payment page
+3. Customer completes payment
+4. Merchant receives Discord notification (if configured)
+5. Customer is redirected back to the POS success page to view/share their digital receipt
+
+### 4. Receipt Access
+
+Customers can access receipts using the encrypted URL format:
+```
+https://your-worker.your-subdomain.workers.dev/success
+  ?oid=POS-12345
+  &c=ENCRYPTED_DATA
+  &time=1234567890123
+  &ts=1234567890
+  &sig=RECEIPT_SIGNATURE
+```
+
+---
+
+### 5. Developer Overrides (Optional)
+
+These variables can be used for local testing or to override production settings without changing secrets:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SINDIPAY_TLD_OVERRIDE` | Override the SindiPay TLD (e.g., `xyz` for testing) | `.com` |
+| `SINDIPAY_API_KEY_OVERRIDE` | Override the API key for testing | `""` |
+
+---
+
+## 🏗 Architecture & Security Logic
+
+### Digital Signatures (HMAC)
+
+The system uses `crypto.subtle` to generate **HMAC-SHA256** signatures for all sensitive URLs:
+
+```javascript
+// Signature format: HMAC-SHA256(TYPE-data, SECRET)
+// TYPE prefixes: "PAY" (Payment links) or "RCT" (Receipts) or "WEBHOOK" (Webhook validation)
+```
+
+**Benefits:**
+
+* **Tamper Protection**: Any change to URL parameters (amount, timestamp, encrypted data) invalidates the signature.
+* **Replay Protection**: Signatures are tied to unique timestamps and POS Order IDs.
+* **Context Separation**: Using unique prefixes (`PAY-`, `RCT-`, `WEBHOOK-`) ensures signatures cannot be reused across different contexts.
+
+### Split Secret Architecture
+
+The system uses **multiple specialized secrets** for different security purposes:
+
+| Secret | Purpose | Usage |
+|--------|---------|-------|
+| `WEBHOOK_AUTH_SECRET` | Webhook authentication and verification | Webhook route `/webhook` |
+| `LINK_SIGNING_SECRET` | Link signature signing and session tokens | Payment links `/generate`, `/success` |
+| `PII_ENCRYPTION_SECRET` | PII encryption for customer data | Receipt privacy `/success` |
+| `TERMINAL_PASSWORD` | Dashboard authentication | Login route `/login` |
+| `API_KEY` | SindiPay API authentication | Gateway API calls |
+
+### Session Security
+
+The system implements **signed session tokens** with HMAC-SHA256 signatures:
+
+```javascript
+// Session token format: {timestamp}|{random}.{signature}
+// Signed with: LINK_SIGNING_SECRET
+// Expiration: 2 minutes
+```
+
+**Benefits:**
+
+* **No Password Storage**: Dashboard password is never stored in cookies or session tokens
+* **Short Expiry**: Sessions automatically expire after 2 minutes
+* **Tamper Protection**: Any modification to the token invalidates it
+* **Stateless**: No server-side session storage required
+
+### Receipt & Link Privacy (AES-GCM)
+
+The system uses **stateless encryption** to protect Customer PII (Personally Identifiable Information):
+
+1. **Encryption**: Customer names, emails, and custom payment titles are encrypted using **AES-256-GCM** with a key derived from your `PII_ENCRYPTION_SECRET`.
+2. **Encrypted Token**: This data is passed in the URL as a base64url-encoded `c=` parameter.
+3. **Privacy**:
+   * ✅ Browser history and logs do **not** show customer names or emails in plain text.
+   * ✅ The digital receipt still displays all details after secure decryption.
+   * ✅ The system remains **stateless** (no database required to store customer info).
+
+### Webhook Verification Flow
+
+The system implements a **two-step verification** process for webhooks:
+
+1. **Signature Verification**: Validates the webhook signature using `WEBHOOK_AUTH_SECRET`
+2. **Gateway Verification**: Verifies payment status directly with SindiPay API
+
+**Why This Matters:**
+- ✅ **No Trust in Payload**: The system never trusts the webhook payload status
+- ✅ **Real-time Verification**: Always checks the actual payment status with the gateway
+- ✅ **Security First**: Invalid signatures are silently ignored
+- ✅ **Attack Prevention**: Prevents false notifications from malicious webhook calls
+
+### Security Layers
+
+1. **Authentication Layer** - Secure cookie-based session management with signed tokens
+2. **Signature Layer** - HMAC-SHA256 validation for all payment links and webhooks
+3. **Temporal Layer** - Time-based expiration for links and sessions
+4. **Webhook Layer** - Secret-based webhook authentication + gateway verification
+5. **Gateway Layer** - Real-time verification with payment gateway
+6. **Encryption Layer** - AES-GCM encryption for customer PII privacy
+
+---
+
 ## 🔒 Security Features
 
 ### Webhook URL Sanitization
@@ -402,87 +476,7 @@ https://your-worker.your-subdomain.workers.dev/webhook?c=ENCRYPTED_TOKEN_HERE&ti
 1. Verify webhook signature using `WEBHOOK_AUTH_SECRET`
 2. If signature invalid, return "OK" (no error response)
 3. If signature valid, fetch payment status from SindiPay API
-4. Only send Discord notification if payment actually exists
-
-### Discord Mention Protection
-
-**Problem**: Discord webhooks could accidentally @everyone or @here.
-
-**Solution**:
-- ✅ **allowed_mentions**: Set to `{ parse: [] }` to prevent all mentions
-- ✅ **Safe Embeds**: All text is properly escaped and RTL-wrapped for Arabic
-- ✅ **No Ping**: Notifications never ping users unless explicitly mentioned
-
-**Implementation**:
-```javascript
-body: JSON.stringify({
-  embeds: [{ /* embed content */ }],
-  allowed_mentions: { parse: [] }  // Prevents @everyone/@here
-})
-```
-
-### Session Token Security
-
-**Problem**: Session cookies could be forged or contained sensitive data.
-
-**Solution**:
-- ✅ **Signed Tokens**: Session tokens are HMAC-signed using `LINK_SIGNING_SECRET`
-- ✅ **No Password Storage**: Terminal password never stored in cookies
-- ✅ **Short Expiry**: Sessions expire after 2 minutes
-- ✅ **Tamper Proof**: Any modification invalidates the token
-
-**Token Format**:
-```
-{timestamp}|{random}.{signature}
-```
-
-### PII Encryption
-
-**Problem**: Customer names and emails exposed in URLs and logs.
-
-**Solution**:
-- ✅ **AES-GCM Encryption**: All PII encrypted using `PII_ENCRYPTION_SECRET`
-- ✅ **Stateless**: No database required for decryption
-- ✅ **URL Privacy**: Browser history doesn't show customer data
-- ✅ **Secure Display**: Data only decrypted and displayed on receipt page
-
----
-
-## 🔌 Webhook Setup
-
-### SindiPay Webhook Configuration
-
-When setting up webhooks in your SindiPay dashboard, use this configuration:
-
-**Webhook URL Format**:
-```
-https://your-worker.your-subdomain.workers.dev/webhook
-```
-
-**Important Notes**:
-- ✅ **No Query Parameters**: Don't add `?secret=` or other parameters to the URL
-- ✅ **HTTPS Only**: Cloudflare Workers provides automatic HTTPS
-- ✅ **Domain**: Use your deployed Worker domain (not localhost)
-
-### Webhook Headers
-
-The system expects these headers from SindiPay:
-
-```http
-Content-Type: application/json
-X-API-Key: your-sindipay-api-key
-User-Agent: Your-POS-POS/1.1.5
-```
-
-### Webhook Signature Verification
-
-The system automatically verifies webhook signatures:
-
-1. **Signature Generation**: `HMAC-SHA256("c={encrypted_data}&time={timestamp}", WEBHOOK_AUTH_SECRET)`
-2. **Signature Location**: Passed as `sig` query parameter
-3. **Verification**: System recomputes signature and compares to provided signature
-
-### Secure Webhook URL Structure
+4. Only send Discord notifications after successful gateway verification.
 
 **Sanitized Webhook URL** (NO PII, no raw secrets):
 ```
@@ -525,201 +519,16 @@ curl -X POST https://your-worker.your-subdomain.workers.dev/webhook \
 
 ---
 
-## 🚀 Setup & Deployment
-
-### Prerequisites
-
-1. **Cloudflare Account**: [Sign up](https://dash.cloudflare.com/sign-up/workers)
-2. **Wrangler CLI**: Install with `npm install -g wrangler`
-3. **SindiPay Account**: [Get your API key](https://sindipay.com/dashboard)
-
-### Step 1: Clone and Setup
-
-```bash
-git clone <repository-url>
-cd posterminal
-```
-
-### Step 2: Configure Environment Variables
-
-```bash
-# Set required secrets
-npx wrangler secret put TERMINAL_PASSWORD
-npx wrangler secret put WEBHOOK_AUTH_SECRET
-npx wrangler secret put LINK_SIGNING_SECRET
-npx wrangler secret put PII_ENCRYPTION_SECRET
-npx wrangler secret put API_KEY
-
-# Set optional secrets
-npx wrangler secret put DISCORD_WEBHOOK_URL
-```
-
-### Step 3: Configure wrangler.toml
-
-```toml
-name = "my-pos-terminal"
-main = "index.js"
-compatibility_date = "2024-01-01"
-
-[vars]
-MERCHANT_NAME = "My Shop"
-MERCHANT_EMAIL = "support@myshop.com"
-MERCHANT_WHATSAPP = "1234567890"
-MERCHANT_FAVICON = "https://example.com/favicon.png"
-```
-
-### Step 4: Deploy
-
-```bash
-npx wrangler deploy
-```
-
-### Step 5: Access Your Terminal
-
-Your POS terminal will be available at:
-```
-https://my-pos-terminal.your-subdomain.workers.dev
-```
-
----
-
-## 📖 Usage Guide
-
-### 1. Dashboard Login
-
-1. Navigate to your Worker URL
-2. Enter your terminal password
-3. You'll be redirected to the POS dashboard (session lasts 2 minutes)
-
-### 2. Creating Payment Links
-
-1. Enter payment amount (IQD)
-2. Enter optional payment title
-3. Enter customer name and email (optional)
-4. Click "Create Payment Link"
-5. Share the QR code with your customer
-
-### 3. Customer Payment Flow
-
-1. Customer scans QR code or opens link
-2. Customer is redirected to SindiPay payment page
-3. Customer completes payment
-4. Customer receives Discord notification (if configured)
-5. Customer can access receipt via the success page
-
-### 4. Receipt Access
-
-Customers can access receipts using the encrypted URL format:
-```
-https://your-worker.your-subdomain.workers.dev/success
-  ?oid=POS-12345
-  &c=ENCRYPTED_DATA
-  &time=1234567890123
-  &ts=1234567890
-  &sig=RECEIPT_SIGNATURE
-```
-
----
-
-## 📋 Upgrade Notes
-
-### Upgrading to v1.1.5
-
-This version introduces significant security improvements. Follow these steps to upgrade:
-
-#### Step 1: Add New Environment Variables
-
-Add these **new required environment variables**:
-
-```bash
-# NEW Enhanced security secrets
-npx wrangler secret put WEBHOOK_AUTH_SECRET
-npx wrangler secret put LINK_SIGNING_SECRET
-npx wrangler secret put PII_ENCRYPTION_SECRET
-```
-
-**Generate secure values**:
-```bash
-# Generate random secrets (32 characters)
-openssl rand -hex 32  # Run this 3 times for each secret
-```
-
-#### Step 2: Update SindiPay Webhook Configuration
-
-**Important**: Your webhook URL format has changed.
-
-**Old Format (Insecure)**:
-```
-https://your-worker.your-subdomain.workers.dev/webhook?secret=YOUR_SECRET
-```
-
-**New Format (Secure)**:
-```
-https://your-worker.your-subdomain.workers.dev/webhook
-```
-
-**Changes Required**:
-1. Remove any `?secret=` parameter from your webhook URL
-2. No additional headers needed - the system uses signature-based authentication
-
-#### Step 3: Set New Secrets (Required)
-
-This is a **breaking change** - you must set the new secrets:
-
-```bash
-# Generate new secrets
-openssl rand -hex 32 > webhook_auth_secret.txt
-openssl rand -hex 32 > link_signing_secret.txt
-openssl rand -hex 32 > pii_encryption_secret.txt
-
-# Set the new secrets
-npx wrangler secret put WEBHOOK_AUTH_SECRET < webhook_auth_secret.txt
-npx wrangler secret put LINK_SIGNING_SECRET < link_signing_secret.txt
-npx wrangler secret put PII_ENCRYPTION_SECRET < pii_encryption_secret.txt
-```
-
-#### Step 4: Test the Upgrade
-
-1. Deploy your updated Worker
-2. Test login functionality
-3. Create a test payment link
-4. Verify Discord notifications work
-5. Check that receipts display correctly
-
-### Upgrading from v1.1.4 or Earlier
-
-If you're upgrading from v1.1.4 or earlier:
-
-1. Follow all v1.1.5 upgrade steps above
-2. **This is a breaking change** - you must set the three new secrets
-3. You can continue using your existing `TERMINAL_PASSWORD` and `API_KEY`
-
-### Migration Checklist
-
-- [ ] Added `WEBHOOK_AUTH_SECRET` environment variable
-- [ ] Added `LINK_SIGNING_SECRET` environment variable  
-- [ ] Added `PII_ENCRYPTION_SECRET` environment variable
-- [ ] Updated SindiPay webhook URL (removed ?secret= parameter)
-- [ ] Tested login functionality
-- [ ] Tested payment link creation
-- [ ] Tested Discord notifications
-- [ ] Verified receipt display
-- [ ] Confirmed backward compatibility
-
----
-
 ## 🛣 API Routes
 
 | Route | Method | Description |
 |-------|--------|-------------|
 | `/` | GET | POS Terminal dashboard (requires authentication) |
-| `/auth` | POST | Authentication endpoint (login) |
-| `/create` | POST | Create payment link (requires authentication) |
+| `/login` | POST | Authentication endpoint |
+| `/generate` | POST | Create payment link (requires authentication) |
+| `/pay` | GET | Intermediate payment gateway redirector |
 | `/success` | GET | Payment success/receipt page |
-| `/webhook` | POST | SindiPay webhook endpoint (signature verified) |
-| `/error` | GET | Generic error page |
-| `/gateway-error` | GET | SindiPay gateway error page |
-| `/canvas-error` | GET | Canvas generation error page |
+| `/webhook` | POST | SindiPay webhook notification handler |
 
 ---
 
@@ -782,7 +591,7 @@ We welcome contributions! Please see our contributing guidelines for details.
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/h190k/posterminal.git
 cd posterminal
 
 # Install dependencies
