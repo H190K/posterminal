@@ -4,6 +4,20 @@ This file is a **quick index** of what changed between versions. For full detail
 
 ---
 
+## v1.1.3 (02.01.2026)
+
+* ✅ **Payment title override (terminal UI)**: added an optional **Payment Title** input on the create page.  
+  * Default title uses: `PAYMENT_TITLE_OVERRIDE - MERCHANT_NAME`
+  * If user enters a custom title: `CustomTitle - MERCHANT_NAME`
+* ✅ **Receipt improvements**: the generated **receipt PNG (canvas)** now includes the **Title** line.
+* ✅ **Discord embeds**: embeds now include a **Title** field.
+* ✅ **Arabic/RTL support**: improved handling for **Arabic client names/titles** in:
+  * Receipt PNG canvas rendering (proper RTL direction + alignment + safe wrapping)
+  * Discord embed text (RTL wrap to prevent broken ordering)
+* ✅ **UI polish**: removed number input increment/decrement arrows (spinner controls).
+
+---
+
 ## v1.1.2 (01.01.2026)
 
 * ✅ **Payment link privacy**: payment links now support the same **sanitization approach** (PII moved into encrypted `c=` token instead of visible query params).

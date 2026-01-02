@@ -4,6 +4,30 @@
 const SINDIPAY_TLD_OVERRIDE = "";     // e.g., ".xyz" (or "xyz")
 const SINDIPAY_API_KEY_OVERRIDE = ""; // optional test key (leave empty in public repo)
 
+// ------------------------------------------------------------
+// ✅ PAYMENT TITLE (DEFAULT + OVERRIDE BEHAVIOR)
+// ------------------------------------------------------------
+// Default title sent to SindiPay + shown in receipt PNG + Discord:
+//   `${PAYMENT_TITLE_OVERRIDE} - ${MERCHANT}`
+//
+// If user types a title in the terminal before creating the link:
+//   `${customTitle} - ${MERCHANT}`
+const PAYMENT_TITLE_OVERRIDE = "Payment";
+
+// ✅ RTL helper for Discord embed (keeps Arabic text from looking broken when mixed with English)
+const applyRtlWrap = (s) => {
+  const str = String(s || "");
+  if (!str) return str;
+  const RTL_RE = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/;
+  return RTL_RE.test(str) ? ("\u202B" + str + "\u202C") : str;
+};
+
+const buildPaymentTitle = (merchantName, titleOverride) => {
+  const merchant = String(merchantName || "POS").trim();
+  const left = String(titleOverride || PAYMENT_TITLE_OVERRIDE || "Payment").trim();
+  return `${left} - ${merchant}`.trim();
+};
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -145,19 +169,20 @@ export default {
       }
 
       // ------------------------------------------------------------
-      // ✅ UPDATE 1: Payment link now sanitized using c= (no name/email in URL)
+      // ✅ UPDATE: Payment title field + sanitized link using c=
       // ------------------------------------------------------------
       if (request.method === "POST" && url.pathname === "/generate") {
         const formData = await request.formData();
         const amount = formData.get("amount");
+        const titleOverride = formData.get("title") || ""; // ✅ NEW
         const name = formData.get("name") || "";
         const email = formData.get("email") || "";
         const timestamp = Date.now().toString();
 
-        // Put PII in c=
-        const cPay = await encryptPII({ name, email });
+        // Put PII + optional title in c=
+        const cPay = await encryptPII({ name, email, title: titleOverride });
 
-        // Sign without exposing name/email
+        // Sign without exposing name/email/title
         const dataToSign = `amount=${amount}&c=${cPay}&time=${timestamp}`;
         const signature = await generateSignature(dataToSign, "PAY");
 
@@ -168,7 +193,11 @@ export default {
           `&sig=${signature}`;
 
         const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=450x450&data=${encodeURIComponent(subLink)}`;
-        return new Response(getSharePageHTML(amount, qrCodeUrl, subLink), {
+
+        // Share title (default/override + merchant)
+        const shareTitle = buildPaymentTitle(config.merchantName, titleOverride);
+
+        return new Response(getSharePageHTML(amount, qrCodeUrl, subLink, shareTitle), {
           headers: { "Content-Type": "text/html; charset=UTF-8" }
         });
       }
@@ -192,7 +221,7 @@ export default {
           });
         }
 
-        // Verify signature without name/email
+        // Verify signature without name/email/title
         const dataToCheck = `amount=${amount}&c=${cPay}&time=${time}`;
         const expectedSig = await generateSignature(dataToCheck, "PAY");
 
@@ -209,14 +238,16 @@ export default {
           });
         }
 
-        // Decrypt cPay to get name/email for gateway + webhook
+        // Decrypt cPay to get name/email/title for gateway + webhook
         let name = "";
         let email = "";
+        let titleOverride = "";
         try {
           if (cPay) {
             const pii = await decryptPII(cPay);
             name = pii?.name || "";
             email = pii?.email || "";
+            titleOverride = pii?.title || "";
           }
         } catch (e) {
           const subject = encodeURIComponent("Security Issue - Invalid Token");
@@ -237,8 +268,11 @@ export default {
         // ✅ Random Order ID (POS-aB12...)
         const oid = `POS-${generateRandomString(8)}`;
 
-        // ✅ Encrypt PII + oid into token `c`
-        const c = await encryptPII({ oid, name, email });
+        // ✅ Final payment title (default/override + merchant)
+        const paymentTitle = buildPaymentTitle(config.merchantName, titleOverride);
+
+        // ✅ Encrypt PII + oid + title into token `c`
+        const c = await encryptPII({ oid, name, email, title: titleOverride });
 
         // ✅ Sign receipt using oid + token `c`
         const receiptData = `oid=${oid}&c=${c}&time=${receiptTime}&ts=${paymentTimestamp}`;
@@ -257,10 +291,12 @@ export default {
           `&sig=${receiptSig}`;
 
         // ✅ Keep name/email in webhook URL (Discord still sees them)
+        // ✅ Add title too so Discord can show it
         const secureWebhookUrl =
           `${url.origin}/webhook?secret=${encodeURIComponent(config.webhookSecret)}` +
           `&name=${encodeURIComponent(name)}` +
-          `&email=${encodeURIComponent(email)}`;
+          `&email=${encodeURIComponent(email)}` +
+          `&title=${encodeURIComponent(paymentTitle)}`;
 
         const spResponse = await fetch(`${config.sindipayBase}/api/v1/payments/gateway/`, {
           method: "POST",
@@ -272,7 +308,7 @@ export default {
             "Referer": `${config.sindipayBase}/`
           },
           body: JSON.stringify({
-            title: `${config.merchantName} Payment`,
+            title: paymentTitle,
             order_id: oid,
             total_amount: amount,
             currency: "IQD",
@@ -339,10 +375,11 @@ export default {
           });
         }
 
-        // ✅ Decrypt token to show name/email on the receipt page
+        // ✅ Decrypt token to show name/email/title on the receipt page
         // ✅ Cross-check: token.oid must match URL oid
         let userName = "";
         let userEmail = "";
+        let userTitleOverride = "";
         try {
           if (c) {
             const pii = await decryptPII(c);
@@ -364,10 +401,12 @@ export default {
 
             userName = pii?.name || "";
             userEmail = pii?.email || "";
+            userTitleOverride = pii?.title || "";
           }
         } catch (e) {
           userName = "";
           userEmail = "";
+          userTitleOverride = "";
         }
 
         const checkResponse = await fetch(`${config.sindipayBase}/api/v1/payments/gateway/${paymentId}/`, {
@@ -399,7 +438,7 @@ export default {
         const createdAt = paymentData.created_at || paymentTimestamp;
 
         return new Response(
-          getConfirmationHTML(orderId, amount, status, userName, userEmail, createdAt, config),
+          getConfirmationHTML(orderId, amount, status, userName, userEmail, userTitleOverride, createdAt, config),
           { headers: { "Content-Type": "text/html; charset=UTF-8" } }
         );
       }
@@ -409,8 +448,15 @@ export default {
         if (secret !== config.webhookSecret) return new Response("Forbidden", { status: 403 });
 
         const data = await request.json();
-        const clientName = url.searchParams.get("name") || "Guest";
-        const clientEmail = url.searchParams.get("email") || "No Email";
+        const rawClientName = url.searchParams.get("name") || "Guest";
+        const rawClientEmail = url.searchParams.get("email") || "No Email";
+        const rawTitle = url.searchParams.get("title") || "";
+
+        // ✅ RTL wrap if Arabic
+        const clientName = applyRtlWrap(rawClientName);
+        const clientEmail = applyRtlWrap(rawClientEmail);
+        const paymentTitle = applyRtlWrap(rawTitle || buildPaymentTitle(config.merchantName, ""));
+
         const isPaid = data.status === "PAID";
         const icon = isPaid ? "✅" : "❌";
         const color = isPaid ? 5763719 : 15548997;
@@ -466,6 +512,7 @@ export default {
                 title: `${icon} POS Transaction Update`,
                 color,
                 fields: [
+                  { name: "Title", value: paymentTitle },
                   { name: "Status", value: data.status || "N/A", inline: true },
                   { name: "Amount", value: `${data.total_amount || "0"} IQD`, inline: true },
                   { name: `Time (GMT+3)`, value: timeStr, inline: true },
@@ -506,7 +553,7 @@ const getHeadMeta = (config) => {
 `.trim();
 };
 
-const STYLES = `:root { --bg: #000; --text: #fff; --sub: #555; --border: #222; } * { box-sizing: border-box; -webkit-font-smoothing: antialiased; } body { background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; margin:0; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; width:100vw; padding-bottom:60px; overflow-x:hidden; } body::-webkit-scrollbar { display: none; } body { -ms-overflow-style: none; scrollbar-width: none; } .container { width:100%; max-width:350px; display:flex; flex-direction:column; align-items:center; padding:20px; text-align:center; } input { background:transparent; border:none; border-bottom: 1px solid var(--border); color:var(--text); font-size:18px; width:100%; text-align:center; outline:none; padding:15px 0; margin-bottom:20px; border-radius:0; } input.amount { font-size:45px; margin-bottom:30px; } button { width:100%; background:#fff; color:#000; border:none; padding:20px; border-radius:50px; font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:2px; cursor:pointer; margin-bottom:12px; } .receipt-card { width:100%; border:1px solid var(--border); padding:40px 20px; border-radius:30px; margin-bottom:30px; } .row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:15px; font-size:14px; color:var(--sub); gap:20px; } .val { color:#fff; font-weight:600; text-align:right; flex-shrink:0; max-width:60%; word-break:break-word; } .alert { position:fixed; top:20px; left:50%; transform:translateX(-50%); background:#fff; color:#000; padding:12px 25px; border-radius:50px; font-size:12px; font-weight:600; z-index:1000; animation:slideDown 0.3s ease; } @keyframes slideDown { from { opacity:0; transform:translateX(-50%) translateY(-20px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }`;
+const STYLES = `:root { --bg: #000; --text: #fff; --sub: #555; --border: #222; } * { box-sizing: border-box; -webkit-font-smoothing: antialiased; } body { background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; margin:0; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; width:100vw; padding-bottom:60px; overflow-x:hidden; } body::-webkit-scrollbar { display: none; } body { -ms-overflow-style: none; scrollbar-width: none; } .container { width:100%; max-width:350px; display:flex; flex-direction:column; align-items:center; padding:20px; text-align:center; } input { background:transparent; border:none; border-bottom: 1px solid var(--border); color:var(--text); font-size:18px; width:100%; text-align:center; outline:none; padding:15px 0; margin-bottom:20px; border-radius:0; } input.amount { font-size:45px; margin-bottom:30px; } input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; } input[type=number]{ -moz-appearance:textfield; appearance:textfield; } button { width:100%; background:#fff; color:#000; border:none; padding:20px; border-radius:50px; font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:2px; cursor:pointer; margin-bottom:12px; } .receipt-card { width:100%; border:1px solid var(--border); padding:40px 20px; border-radius:30px; margin-bottom:30px; } .row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:15px; font-size:14px; color:var(--sub); gap:20px; } .val { color:#fff; font-weight:600; text-align:right; flex-shrink:0; max-width:60%; word-break:break-word; } .alert { position:fixed; top:20px; left:50%; transform:translateX(-50%); background:#fff; color:#000; padding:12px 25px; border-radius:50px; font-size:12px; font-weight:600; z-index:1000; animation:slideDown 0.3s ease; } @keyframes slideDown { from { opacity:0; transform:translateX(-50%) translateY(-20px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }`;
 
 function getErrorHTML(msg, customAction) {
   // ✅ No Back Home button on error/expired pages
@@ -532,21 +579,32 @@ function getLoginHTML(config) {
 }
 
 function getTerminalHTML(config) {
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">${getHeadMeta(config)}<style>${STYLES}</style></head><body><div class="container"><div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">${config.merchantName} Terminal</div><form action="/generate" method="POST" style="width:100%"><input type="number" name="amount" class="amount" placeholder="0" required autofocus inputmode="decimal"><input type="text" name="name" placeholder="Client Name (Optional)"><input type="email" name="email" placeholder="Client Email (Optional)"><button type="submit">Create Request</button></form></div></body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">${getHeadMeta(config)}<style>${STYLES}</style></head><body><div class="container"><div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">${config.merchantName} Terminal</div><form action="/generate" method="POST" style="width:100%"><input type="number" name="amount" class="amount" placeholder="0" required autofocus inputmode="decimal"><input type="text" name="title" placeholder="Payment Title (Optional)"><input type="text" name="name" placeholder="Client Name (Optional)"><input type="email" name="email" placeholder="Client Email (Optional)"><button type="submit">Create Request</button></form></div></body></html>`;
 }
 
-function getSharePageHTML(amount, qrUrl, subLink) {
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>${STYLES} .qr-box{background:#fff; padding:15px; border-radius:20px; margin-bottom:40px;} img{display:block; width:220px; height:220px;}</style></head><body><div class="container"><div style="font-size:48px; font-weight:200; margin-bottom:40px;">${amount}</div><div class="qr-box"><img src="${qrUrl}"></div><button onclick="doShare()">Share Link</button><button style="background:transparent; color:#fff; border:1px solid var(--border); margin-top:10px;" onclick="doCopy()">Copy Link</button><a href="/" style="color:var(--sub); text-decoration:none; font-size:11px; margin-top:30px; text-transform:uppercase;">Cancel</a></div><script> function showAlert(msg) { const alert = document.createElement('div'); alert.className = 'alert'; alert.textContent = msg; document.body.appendChild(alert); setTimeout(() => alert.remove(), 2500); } function doShare(){ if(navigator.share){navigator.share({title:'Payment', url:'${subLink}'});}else{doCopy();} } function doCopy(){ navigator.clipboard.writeText('${subLink}'); showAlert('Link Copied!'); } </script></body></html>`;
+function getSharePageHTML(amount, qrUrl, subLink, shareTitle) {
+  const safeTitle = (shareTitle || "Payment").toString().replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const safeLink = (subLink || "").toString().replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>${STYLES} .qr-box{background:#fff; padding:15px; border-radius:20px; margin-bottom:40px;} img{display:block; width:220px; height:220px;}</style></head><body><div class="container"><div style="font-size:48px; font-weight:200; margin-bottom:40px;">${amount}</div><div class="qr-box"><img src="${qrUrl}"></div><button onclick="doShare()">Share Link</button><button style="background:transparent; color:#fff; border:1px solid var(--border); margin-top:10px;" onclick="doCopy()">Copy Link</button><a href="/" style="color:var(--sub); text-decoration:none; font-size:11px; margin-top:30px; text-transform:uppercase;">Cancel</a></div><script> function showAlert(msg) { const alert = document.createElement('div'); alert.className = 'alert'; alert.textContent = msg; document.body.appendChild(alert); setTimeout(() => alert.remove(), 2500); } function doShare(){ if(navigator.share){navigator.share({title:'${safeTitle}', url:'${safeLink}'});}else{doCopy();} } function doCopy(){ navigator.clipboard.writeText('${safeLink}'); showAlert('Link Copied!'); } </script></body></html>`;
 }
 
-function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, config) {
+function getConfirmationHTML(id, amt, status, userName, userEmail, userTitleOverride, timestamp, config) {
   const isPaid = String(status).toUpperCase() === "PAID";
   const icon = isPaid ? "✓" : "✕";
   const color = isPaid ? "#4CAF50" : "#ff4444";
-  const nameRow = userName ? `<div class="row"><span>Customer</span><span class="val">${userName}</span></div>` : "";
-  const emailRow = userEmail ? `<div class="row"><span>Email</span><span class="val" style="font-size:12px;">${userEmail}</span></div>` : "";
+
   const merchantName = config.merchantName || "Merchant";
   const merchantEmail = config.merchantEmail || "";
+
+  // ✅ Final receipt title (default/override + merchant)
+  const receiptTitle = buildPaymentTitle(merchantName, userTitleOverride);
+
+  const titleRow = receiptTitle
+    ? `<div class="row"><span>Title</span><span class="val">${receiptTitle}</span></div>`
+    : "";
+
+  const nameRow = userName ? `<div class="row"><span>Customer</span><span class="val">${userName}</span></div>` : "";
+  const emailRow = userEmail ? `<div class="row"><span>Email</span><span class="val" style="font-size:12px;">${userEmail}</span></div>` : "";
 
   let dateStr = "";
   if (timestamp) {
@@ -565,8 +623,9 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, co
     ? `<div class="row"><span>Date & Time<br>(GMT+3)</span><span class="val" style="font-size:11px;">${dateStr}</span></div>`
     : "";
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES}</style></head><body> <canvas id="receiptCanvas" style="display:none;"></canvas> <div class="container"> <div class="receipt-card" id="receiptCard"> <div style="font-size:60px;margin-bottom:20px;color:${color}">${icon}</div> ${nameRow} ${emailRow} <div class="row"><span>Amount</span><span class="val">${amt} IQD</span></div> <div class="row"><span>Order ID</span><span class="val">${id}</span></div> ${timestampRow} <div class="row"><span>Status</span><span class="val" style="color:${color}">${String(status).toUpperCase()}</span></div> <div style="margin-top:30px;padding-top:20px;border-top:1px solid var(--border);color:var(--sub);font-size:12px;font-weight:600;">${merchantName}</div> </div> ${merchantEmail ? `<button onclick="sendEmail()">Email Receipt</button>` : ""} <button style="background:transparent; color:#fff; border:1px solid var(--border);" onclick="shareGeneral()">Share Receipt</button> </div> <script>
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES}</style></head><body> <canvas id="receiptCanvas" style="display:none;"></canvas> <div class="container"> <div class="receipt-card" id="receiptCard"> <div style="font-size:60px;margin-bottom:20px;color:${color}">${icon}</div> ${titleRow} ${nameRow} ${emailRow} <div class="row"><span>Amount</span><span class="val">${amt} IQD</span></div> <div class="row"><span>Order ID</span><span class="val">${id}</span></div> ${timestampRow} <div class="row"><span>Status</span><span class="val" style="color:${color}">${String(status).toUpperCase()}</span></div> <div style="margin-top:30px;padding-top:20px;border-top:1px solid var(--border);color:var(--sub);font-size:12px;font-weight:600;">${merchantName}</div> </div> ${merchantEmail ? `<button onclick="sendEmail()">Email Receipt</button>` : ""} <button style="background:transparent; color:#fff; border:1px solid var(--border);" onclick="shareGeneral()">Share Receipt</button> </div> <script>
   const receiptData = {
+    title: ${JSON.stringify(String(receiptTitle || ""))},
     id: ${JSON.stringify(String(id || ""))},
     amt: ${JSON.stringify(String(amt || ""))},
     status: ${JSON.stringify(String(status || "").toUpperCase())},
@@ -587,37 +646,113 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, co
     setTimeout(() => alert.remove(), 3000);
   }
 
+  // ✅ Arabic/RTL helpers for canvas (prevents backwards/misaligned Arabic)
+  const RTL_RE = /[\\u0591-\\u07FF\\uFB1D-\\uFDFD\\uFE70-\\uFEFC]/;
+  const isRTLText = (s) => RTL_RE.test(String(s || ""));
+  const wrapDir = (s, rtl) => {
+    const str = String(s || "");
+    if (!str) return str;
+    return rtl ? ("\\u202B" + str + "\\u202C") : ("\\u202A" + str + "\\u202C");
+  };
+
+  function wrapTextLines(ctx, text, maxWidth) {
+    const t = String(text || "").trim();
+    if (!t) return [];
+    if (ctx.measureText(t).width <= maxWidth) return [t];
+
+    const words = t.split(/\\s+/g);
+    if (words.length === 1) {
+      const out = [];
+      let buf = "";
+      for (const ch of t) {
+        const test = buf + ch;
+        if (ctx.measureText(test).width > maxWidth && buf) {
+          out.push(buf);
+          buf = ch;
+        } else {
+          buf = test;
+        }
+      }
+      if (buf) out.push(buf);
+      return out.slice(0, 3);
+    }
+
+    const lines = [];
+    let line = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const test = line + " " + words[i];
+      if (ctx.measureText(test).width <= maxWidth) {
+        line = test;
+      } else {
+        lines.push(line);
+        line = words[i];
+      }
+      if (lines.length >= 3) break;
+    }
+    if (lines.length < 3 && line) lines.push(line);
+    return lines;
+  }
+
   function createReceiptImage() {
     return new Promise((resolve) => {
       const canvas = document.getElementById('receiptCanvas');
       const ctx = canvas.getContext('2d');
       canvas.width = 700;
-      canvas.height = 800;
+      canvas.height = 860;
 
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       ctx.strokeStyle = '#222';
       ctx.lineWidth = 2;
-      ctx.strokeRect(30, 30, 640, 740);
+      ctx.strokeRect(30, 30, 640, 800);
 
-      ctx.font = 'bold 100px Arial';
+      const FONT_STACK = '-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Arabic", "Noto Naskh Arabic", Arial, sans-serif';
+
+      ctx.font = 'bold 100px ' + FONT_STACK;
       ctx.fillStyle = receiptData.color;
       ctx.textAlign = 'center';
+      ctx.direction = 'ltr';
       ctx.fillText(receiptData.icon, 300, 150);
 
-      let y = 250;
-      ctx.font = '20px sans-serif';
+      // ✅ Title in PNG (centered, RTL safe)
+      let y = 230;
+      const title = String(receiptData.title || '').trim();
+      if (title) {
+        const rtl = isRTLText(title);
+        ctx.font = '700 28px ' + FONT_STACK;
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.direction = rtl ? 'rtl' : 'ltr';
+
+        const lines = wrapTextLines(ctx, title, 460);
+        for (let i = 0; i < lines.length; i++) {
+          ctx.fillText(wrapDir(lines[i], rtl), 300, y);
+          y += 34;
+        }
+        y += 10;
+      }
+
+      if (y < 250) y = 250;
+
+      ctx.font = '20px ' + FONT_STACK;
       ctx.textAlign = 'left';
 
       const drawRow = (label, val, valColor = '#fff') => {
         if(!val) return;
+
+        ctx.direction = 'ltr';
+        ctx.textAlign = 'left';
         ctx.fillStyle = '#555';
         ctx.fillText(label, 80, y);
+
+        const v = String(val);
+        const rtl = isRTLText(v);
         ctx.fillStyle = valColor;
+        ctx.direction = rtl ? 'rtl' : 'ltr';
         ctx.textAlign = 'right';
-        ctx.fillText(val, 520, y);
-        ctx.textAlign = 'left';
+        ctx.fillText(wrapDir(v, rtl), 520, y);
+
         y += 50;
       };
 
@@ -627,14 +762,18 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, co
       drawRow('Order ID', receiptData.id);
 
       if(receiptData.timestamp) {
+        ctx.direction = 'ltr';
+        ctx.textAlign = 'left';
         ctx.fillStyle = '#555';
         ctx.fillText('Date & Time (GMT+3)', 80, y);
+
         ctx.fillStyle = '#fff';
-        ctx.font = '14px sans-serif';
+        ctx.font = '14px ' + FONT_STACK;
         ctx.textAlign = 'right';
+        ctx.direction = 'ltr';
         ctx.fillText(receiptData.timestamp, 520, y);
-        ctx.textAlign = 'left';
-        ctx.font = '20px sans-serif';
+
+        ctx.font = '20px ' + FONT_STACK;
         y += 50;
       }
 
@@ -646,9 +785,10 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, co
       ctx.lineTo(520, y+20);
       ctx.stroke();
 
-      ctx.font = '16px sans-serif';
+      ctx.font = '16px ' + FONT_STACK;
       ctx.fillStyle = '#555';
       ctx.textAlign = 'center';
+      ctx.direction = 'ltr';
       ctx.fillText('BY ' + receiptData.merchantName.toUpperCase(), 300, y+60);
 
       canvas.toBlob(blob => resolve(blob), 'image/png');
@@ -661,6 +801,7 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, co
     const subject = encodeURIComponent('Receipt: ' + receiptData.id);
 
     let bodyText = 'RECEIPT DETAILS\\n';
+    if(receiptData.title) bodyText += '\\nTitle: ' + receiptData.title;
     if(receiptData.name) bodyText += '\\nName: ' + receiptData.name;
     if(receiptData.email) bodyText += '\\nEmail: ' + receiptData.email;
     bodyText += '\\nAmount: ' + receiptData.amt + ' IQD\\nOrder ID: ' + receiptData.id;
@@ -680,7 +821,9 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, co
       } else {
         const text =
           'RECEIPT\\n\\n' +
+          (receiptData.title ? 'Title: ' + receiptData.title + '\\n' : '') +
           (receiptData.name ? 'Name: ' + receiptData.name + '\\n' : '') +
+          (receiptData.email ? 'Email: ' + receiptData.email + '\\n' : '') +
           'Amount: ' + receiptData.amt + ' IQD\\n' +
           'Order ID: ' + receiptData.id +
           (receiptData.timestamp ? '\\nDate & Time: ' + receiptData.timestamp + ' (GMT+3)' : '') +
