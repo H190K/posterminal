@@ -646,14 +646,7 @@ If my projects make your life easier, consider supporting development. Your supp
 
 [![Crypto Donations](https://img.shields.io/badge/Crypto_Donations-NOWPayments-9B59B6?style=for-the-badge&logo=bitcoin&logoColor=colored)](https://nowpayments.io/donation?api_key=J0QACAH-BTH4F4F-QDXM4ZS-RCA58BH)
 
-</div>
 
----
-
-<div align="center">
-
-**Built with ❤️ for the open-source community**
-</div>
 
 ---
 
