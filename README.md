@@ -279,16 +279,83 @@ const iconUrl = config.favicon;  // This is the favicon URL
 ### ⚙️ Customization
 
 * **Branding Support** - Unified `config` object manages merchant name, email, WhatsApp, and favicon. 
+* **Payment Title Override** - Default payment title format is `${PAYMENT_TITLE_OVERRIDE} - ${MERCHANT}`. Users can type custom titles in terminal for personalized payment names.
 * **Smart Overrides**: Support for `SINDIPAY_TLD_OVERRIDE` and `SINDIPAY_API_KEY_OVERRIDE` for safe local testing without modifying secrets. 
 * **Email Integration** - Optional client-side email receipt functionality. 
 * **WhatsApp Integration** - Direct support link using the `MERCHANT_WHATSAPP` number. 
 
+### Payment Title Override Configuration
+
+**Default Behavior**:
+- Default payment title: `${PAYMENT_TITLE_OVERRIDE} - ${MERCHANT}`
+- Users can type custom titles in terminal for personalized payment names
+- Automatic RTL wrapping for Arabic text in Discord notifications
+
+**Code Implementation**:
+```javascript
+// From index.js - Payment title configuration
+const PAYMENT_TITLE_OVERRIDE = "Payment";
+const buildPaymentTitle = (merchantName, titleOverride) => {
+  const merchant = String(merchantName || "POS").trim();
+  const left = String(titleOverride || PAYMENT_TITLE_OVERRIDE || "Payment").trim();
+  return `${left} - ${merchant}`.trim();
+};
+
+// Usage examples:
+// Default: "Payment - My Shop"
+// Custom title typed by user: "Coffee Order - My Shop"
+// Arabic RTL: "طلب قهوة - متجري" (properly wrapped for Discord)
+```
+
 ### Switch SindiPay domain (test vs production)
 
+**Using Environment Variable (Recommended)**:
+```bash
+# Set in your environment or wrangler.toml
+SINDIPAY_TLD_OVERRIDE="xyz"  # For sindipay.xyz (testing)
+# or leave empty for sindipay.com (production)
+```
+
+**Manual Search and Replace**:
 Search in `index.js` and replace:
 
 * `https://sindipay.xyz/...` (testing)
 * `https://sindipay.com/...` (production)
+
+**Smart Override Logic**:
+```javascript
+// From index.js - TLD override with fallback
+const tldRaw = (SINDIPAY_TLD_OVERRIDE || ".com").toString().trim();
+const tld = tldRaw ? (tldRaw.startsWith(".") ? tldRaw : `.${tldRaw}`) : ".com";
+const sindipayBase = `https://sindipay${tld}`;
+```
+
+### Timezone Configuration
+
+**Current Configuration**: The system uses **Asia/Baghdad** timezone for all date/time formatting.
+
+**Usage**:
+- Applied to all receipt timestamps
+- Applied to all Discord notification timestamps
+- Ensures consistent time display across all interfaces
+
+**Code Implementation**:
+```javascript
+// From index.js - Timezone configuration
+return {
+  // ... other config
+  tz: "Asia/Baghdad",
+};
+
+// Usage in date formatting:
+timeStr = date.toLocaleString("en-US", {
+  year: "numeric", month: "short", day: "numeric",
+  hour: "2-digit", minute: "2-digit", second: "2-digit",
+  hour12: true, timeZone: config.tz  // Uses configured timezone
+});
+```
+
+**Customization**: To change timezone, modify the `tz` property in the `buildMerchantConfig` function in `index.js`.
 
 ### Add More Payment Gateways
 
