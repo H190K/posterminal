@@ -14,10 +14,10 @@ This file is a **quick index** of what changed between versions. For full detail
 * ✅ **Config structure alignment**: unified config object to match Pro implementation:
   * Replaced hardcoded config with `buildMerchantConfig(env)` helper function
   * Renamed `merchantName` → `name` throughout codebase
-  * Renamed `merchantFavicon` → `logo` throughout codebase
+  * Renamed `merchantFavicon` → `favicon` throughout codebase
   * Renamed `merchantEmail` → `email` throughout codebase
   * Renamed `merchantWhatsapp` → `whatsapp` throughout codebase
-  * Added `defaultPlaceholderLogo()` function to generate SVG logos with merchant initials
+  * Added `defaultPlaceholderFavicon()` function to generate SVG favicons with merchant initials
   * Added `escapeXml()` function for SVG text node escaping
   * Added `escapeJsString()` function for JavaScript template literal escaping
 * ✅ **Canvas rendering improvements**: aligned canvas receipt generation with reference implementation:

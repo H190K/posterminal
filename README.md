@@ -61,7 +61,7 @@ We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment
 
 ### ⚙️ Customization
 
-* **Branding Support** - Unified `config` object manages merchant name, email, WhatsApp, and logo.
+* **Branding Support** - Unified `config` object manages merchant name, email, WhatsApp, and favicon.
 * **Smart Overrides**: Support for `SINDIPAY_TLD_OVERRIDE` and `SINDIPAY_API_KEY_OVERRIDE` for safe local testing without modifying secrets.
 * **Email Integration** - Optional client-side email receipt functionality.
 * **WhatsApp Integration** - Direct support link using the `MERCHANT_WHATSAPP` number.
@@ -168,7 +168,7 @@ Configure these in Cloudflare Workers as **Secrets** or in `wrangler.toml`:
 | `MERCHANT_NAME`       | Your business/merchant name                                                              | ⚠️ Recommended | `My Shop`                              |
 | `MERCHANT_EMAIL`      | Contact email for customer support                                                       | ⚠️ Recommended | `support@myshop.com`                   |
 | `MERCHANT_WHATSAPP`   | WhatsApp number (with country code, no +)                                                | ⚠️ Recommended | `1234567890`                           |
-| `MERCHANT_FAVICON`     | URL to your logo/icon (used as favicon + iOS app icon / apple-touch-icon)               | ⚪ Optional     | `https://example.com/logo.png`         |
+| `MERCHANT_FAVICON`     | URL to your favicon (used as favicon + iOS app icon / apple-touch-icon). **Note**: This image will be used as both the browser favicon and the PWA app icon on iOS devices. Recommended size: 192x192px or larger for best quality. | ⚪ Optional     | `https://example.com/favicon.png`     |
 | `DISCORD_WEBHOOK_URL` | Discord webhook URL for notifications                                                    | ⚪ Optional     | `https://discord.com/api/webhooks/...` |
 
 ### Setting up Environment Variables
@@ -196,7 +196,24 @@ compatibility_date = "2024-01-01"
 MERCHANT_NAME = "My Shop"
 MERCHANT_EMAIL = "support@myshop.com"
 MERCHANT_WHATSAPP = "1234567890"
-MERCHANT_FAVICON = "https://example.com/logo.png"
+MERCHANT_FAVICON = "https://example.com/favicon.png"
+```
+
+### 📝 Favicon Implementation Note
+
+**Important**: The code uses `MERCHANT_FAVICON` environment variable to load your favicon. The internal code (`index.js`) uses a `favicon` variable that stores this value and is exclusively used for favicon/PWA icon functionality. The favicon appears in:
+
+- Browser tab favicon
+- iOS home screen icon when added as PWA
+- Apple touch icon for iOS devices
+
+**Code Implementation**:
+```javascript
+// From index.js - Environment variable is correctly mapped
+const favicon = (env.MERCHANT_FAVICON || "").toString().trim() || defaultPlaceholderFavicon(name);
+
+// Used as favicon throughout the application
+const iconUrl = config.favicon;  // This is the favicon URL
 ```
 
 ---

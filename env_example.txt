@@ -42,9 +42,9 @@ MERCHANT_EMAIL=support@myshop.com
 # Example: 1234567890 for +1 (234) 567-890
 MERCHANT_WHATSAPP=1234567890
 
-# URL to your logo/icon (180x180px recommended)
+# URL to your favicon (180x180px recommended)
 # Leave empty to use default placeholder
-MERCHANT_LOGO=https://example.com/logo.png
+MERCHANT_FAVICON=https://example.com/favicon.png
 
 # ----------------------------------------
 # OPTIONAL FEATURES

@@ -30,11 +30,11 @@ const buildPaymentTitle = (merchantName, titleOverride) => {
 
 function buildMerchantConfig(env) {
   const name = (env.MERCHANT_NAME || "POS").toString();
-  const logo = (env.MERCHANT_FAVICON || "").toString().trim() || defaultPlaceholderLogo(name);
+  const favicon = (env.MERCHANT_FAVICON || "").toString().trim() || defaultPlaceholderFavicon(name);
 
   return {
     name,
-    logo,
+    favicon,
     whatsapp: (env.MERCHANT_WHATSAPP || "").toString().trim(),
     email: (env.MERCHANT_EMAIL || "").toString().trim(),
     terminalPassword: env.TERMINAL_PASSWORD || "",
@@ -558,7 +558,7 @@ export default {
 // UI helpers (same UI, now uses config)
 // -----------------------------
 const getHeadMeta = (config) => {
-  const iconUrl = config.logo;
+  const iconUrl = config.favicon;
   return `
 <link rel="icon" type="image/png" href="${iconUrl}">
 <link rel="apple-touch-icon" href="${iconUrl}">
@@ -864,9 +864,9 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, co
 }
 
 // ------------------------------------------------------------
-// Default placeholder logo (generates SVG with merchant initial)
+// Default placeholder favicon (generates SVG with merchant initial)
 // ------------------------------------------------------------
-function defaultPlaceholderLogo(name) {
+function defaultPlaceholderFavicon(name) {
   const initial = (name || "M").trim().slice(0, 1).toUpperCase() || "M";
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
