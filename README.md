@@ -172,7 +172,7 @@ Configure these in Cloudflare Workers as **Secrets** or in `wrangler.toml`:
 | `MERCHANT_NAME`       | Your business/merchant name                                                              | ⚠️ Recommended | `My Shop`                              |
 | `MERCHANT_EMAIL`      | Contact email for customer support                                                       | ⚠️ Recommended | `support@myshop.com`                   |
 | `MERCHANT_WHATSAPP`   | WhatsApp number (with country code, no +)                                                | ⚠️ Recommended | `1234567890`                           |
-| `MERCHANT_FAVICON`     | URL to your logo/icon (used as favicon + iOS app icon / apple-touch-icon) for now        | ⚪ Optional     | `https://example.com/logo.png`         |
+| `MERCHANT_FAVICON`     | URL to your logo/icon (used as favicon + iOS app icon / apple-touch-icon)               | ⚪ Optional     | `https://example.com/logo.png`         |
 | `DISCORD_WEBHOOK_URL` | Discord webhook URL for notifications                                                    | ⚪ Optional     | `https://discord.com/api/webhooks/...` |
 
 ### Setting up Environment Variables
