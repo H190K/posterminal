@@ -15,6 +15,8 @@ This file is a **quick index** of what changed between versions. For full detail
   * Receipt PNG canvas rendering (proper RTL direction + alignment + safe wrapping)
   * Discord embed text (RTL wrap to prevent broken ordering)
 * ✅ **UI polish**: removed number input increment/decrement arrows (spinner controls).
+* ✅ **Environment variable rename**: renamed `MERCHANT_LOGO` to `MERCHANT_FAVICON` for better clarity.
+* ✅ **Internal variable rename**: updated `merchantLogo` to `merchantFavicon` in config object and all references throughout the codebase.
 
 ---
 

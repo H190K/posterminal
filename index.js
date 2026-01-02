@@ -54,7 +54,7 @@ export default {
       merchantName: env.MERCHANT_NAME || "POS",
       merchantEmail: env.MERCHANT_EMAIL || "",
       merchantWhatsapp: env.MERCHANT_WHATSAPP || "",
-      merchantLogo: env.MERCHANT_LOGO || "https://via.placeholder.com/180x180/000000/FFFFFF/?text=POS",
+      merchantFavicon: env.MERCHANT_FAVICON || "https://via.placeholder.com/180x180/000000/FFFFFF/?text=POS",
       terminalPassword: env.TERMINAL_PASSWORD || "",
       webhookSecret: env.WEBHOOK_SECRET || "",
       apiKey: apiKey,
@@ -542,7 +542,7 @@ export default {
 // UI helpers (same UI, now uses config)
 // -----------------------------
 const getHeadMeta = (config) => {
-  const iconUrl = config.merchantLogo;
+  const iconUrl = config.merchantFavicon;
   return `
 <link rel="icon" type="image/png" href="${iconUrl}">
 <link rel="apple-touch-icon" href="${iconUrl}">
