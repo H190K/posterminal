@@ -197,7 +197,7 @@ export default {
         // Share title (default/override + merchant)
         const shareTitle = buildPaymentTitle(config.merchantName, titleOverride);
 
-        return new Response(getSharePageHTML(amount, qrCodeUrl, subLink, shareTitle), {
+        return new Response(getSharePageHTML(amount, qrCodeUrl, subLink, config, shareTitle), {
           headers: { "Content-Type": "text/html; charset=UTF-8" }
         });
       }
@@ -216,7 +216,7 @@ export default {
           const waBtn = config.merchantWhatsapp
             ? `<button style="background:#25D366; color:#fff; margin-top:10px;" onclick="location.href='https://wa.me/${config.merchantWhatsapp}'">WhatsApp Merchant</button>`
             : "";
-          return new Response(getErrorHTML("Link Expired.<br>This payment link is over 30 minutes old.", emailBtn + waBtn), {
+          return new Response(getErrorHTML("Link Expired.<br>This payment link is over 30 minutes old.", emailBtn + waBtn, config), {
             headers: { "Content-Type": "text/html" }
           });
         }
@@ -233,7 +233,7 @@ export default {
           const waBtn = config.merchantWhatsapp
             ? `<button style="background:#25D366; color:#fff; margin-top:10px;" onclick="location.href='https://wa.me/${config.merchantWhatsapp}'">WhatsApp Merchant</button>`
             : "";
-          return new Response(getErrorHTML("Security Check Failed.<br>Invalid or tampered link.", emailBtn + waBtn), {
+          return new Response(getErrorHTML("Security Check Failed.<br>Invalid or tampered link.", emailBtn + waBtn, config), {
             headers: { "Content-Type": "text/html" }
           });
         }
@@ -257,7 +257,7 @@ export default {
           const waBtn = config.merchantWhatsapp
             ? `<button style="background:#25D366; color:#fff; margin-top:10px;" onclick="location.href='https://wa.me/${config.merchantWhatsapp}'">WhatsApp Merchant</button>`
             : "";
-          return new Response(getErrorHTML("Security Check Failed.<br>Invalid customer token.", emailBtn + waBtn), {
+          return new Response(getErrorHTML("Security Check Failed.<br>Invalid customer token.", emailBtn + waBtn, config), {
             headers: { "Content-Type": "text/html" }
           });
         }
@@ -321,7 +321,7 @@ export default {
 
         const text = await spResponse.text();
         if (text.includes("<!DOCTYPE") || text.includes("<html")) {
-          return new Response(getErrorHTML("Gateway Firewall Block.<br>Please wait 5 minutes."), {
+          return new Response(getErrorHTML("Gateway Firewall Block.<br>Please wait 5 minutes.", "", config), {
             headers: { "Content-Type": "text/html" }
           });
         }
@@ -353,7 +353,7 @@ export default {
           const waBtn = config.merchantWhatsapp
             ? `<button style="background:#25D366; color:#fff; margin-top:10px;" onclick="location.href='https://wa.me/${config.merchantWhatsapp}'">WhatsApp Merchant</button>`
             : "";
-          return new Response(getErrorHTML("Receipt Expired.<br>This receipt is older than 48 hours.", emailBtn + waBtn), {
+          return new Response(getErrorHTML("Receipt Expired.<br>This receipt is older than 48 hours.", emailBtn + waBtn, config), {
             headers: { "Content-Type": "text/html" }
           });
         }
@@ -370,7 +370,7 @@ export default {
           const waBtn = config.merchantWhatsapp
             ? `<button style="background:#25D366; color:#fff; margin-top:10px;" onclick="location.href='https://wa.me/${config.merchantWhatsapp}'">WhatsApp Merchant</button>`
             : "";
-          return new Response(getErrorHTML("Security Warning.<br>Invalid receipt signature.", emailBtn + waBtn), {
+          return new Response(getErrorHTML("Security Warning.<br>Invalid receipt signature.", emailBtn + waBtn, config), {
             headers: { "Content-Type": "text/html" }
           });
         }
@@ -394,7 +394,7 @@ export default {
               const waBtn = config.merchantWhatsapp
                 ? `<button style="background:#25D366; color:#fff; margin-top:10px;" onclick="location.href='https://wa.me/${config.merchantWhatsapp}'">WhatsApp Merchant</button>`
                 : "";
-              return new Response(getErrorHTML("Security Warning.<br>Receipt cross-check failed.", emailBtn + waBtn), {
+              return new Response(getErrorHTML("Security Warning.<br>Receipt cross-check failed.", emailBtn + waBtn, config), {
                 headers: { "Content-Type": "text/html" }
               });
             }
@@ -426,7 +426,7 @@ export default {
           const waBtn = config.merchantWhatsapp
             ? `<button style="background:#25D366; color:#fff; margin-top:10px;" onclick="location.href='https://wa.me/${config.merchantWhatsapp}'">WhatsApp Merchant</button>`
             : "";
-          return new Response(getErrorHTML("Transaction Not Found.<br>Invalid Payment ID.", emailBtn + waBtn), {
+          return new Response(getErrorHTML("Transaction Not Found.<br>Invalid Payment ID.", emailBtn + waBtn, config), {
             headers: { "Content-Type": "text/html" }
           });
         }
@@ -438,7 +438,7 @@ export default {
         const createdAt = paymentData.created_at || paymentTimestamp;
 
         return new Response(
-          getConfirmationHTML(orderId, amount, status, userName, userEmail, userTitleOverride, createdAt, config),
+          getConfirmationHTML(orderId, amount, status, userName, userEmail, createdAt, config, userTitleOverride),
           { headers: { "Content-Type": "text/html; charset=UTF-8" } }
         );
       }
@@ -555,13 +555,14 @@ const getHeadMeta = (config) => {
 
 const STYLES = `:root { --bg: #000; --text: #fff; --sub: #555; --border: #222; } * { box-sizing: border-box; -webkit-font-smoothing: antialiased; } body { background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; margin:0; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; width:100vw; padding-bottom:60px; overflow-x:hidden; } body::-webkit-scrollbar { display: none; } body { -ms-overflow-style: none; scrollbar-width: none; } .container { width:100%; max-width:350px; display:flex; flex-direction:column; align-items:center; padding:20px; text-align:center; } input { background:transparent; border:none; border-bottom: 1px solid var(--border); color:var(--text); font-size:18px; width:100%; text-align:center; outline:none; padding:15px 0; margin-bottom:20px; border-radius:0; } input.amount { font-size:45px; margin-bottom:30px; } input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; } input[type=number]{ -moz-appearance:textfield; appearance:textfield; } button { width:100%; background:#fff; color:#000; border:none; padding:20px; border-radius:50px; font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:2px; cursor:pointer; margin-bottom:12px; } .receipt-card { width:100%; border:1px solid var(--border); padding:40px 20px; border-radius:30px; margin-bottom:30px; } .row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:15px; font-size:14px; color:var(--sub); gap:20px; } .val { color:#fff; font-weight:600; text-align:right; flex-shrink:0; max-width:60%; word-break:break-word; } .alert { position:fixed; top:20px; left:50%; transform:translateX(-50%); background:#fff; color:#000; padding:12px 25px; border-radius:50px; font-size:12px; font-weight:600; z-index:1000; animation:slideDown 0.3s ease; } @keyframes slideDown { from { opacity:0; transform:translateX(-50%) translateY(-20px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }`;
 
-function getErrorHTML(msg, customAction) {
+function getErrorHTML(msg, customAction, config) {
   // ✅ No Back Home button on error/expired pages
   const action = customAction ? customAction : ``;
 
   return `<!DOCTYPE html><html><head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    ${config ? getHeadMeta(config) : ''}
     <title>Error</title>
     <style>${STYLES}</style>
   </head><body>
@@ -575,20 +576,20 @@ function getErrorHTML(msg, customAction) {
 }
 
 function getLoginHTML(config) {
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">${getHeadMeta(config)}<style>${STYLES}</style></head><body><div class="container"><div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">Authentication</div><form action="/login" method="POST" style="width:100%"><input type="password" name="password" placeholder="Key" required autofocus><button type="submit">Unlock</button></form></div></body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">${getHeadMeta(config)}<style>${STYLES}</style></head><body><div class="container"><div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">${config.merchantName} Auth</div><form action="/login" method="POST" style="width:100%"><input type="password" name="password" placeholder="Key" required autofocus><button type="submit">Unlock</button></form></div></body></html>`;
 }
 
 function getTerminalHTML(config) {
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">${getHeadMeta(config)}<style>${STYLES}</style></head><body><div class="container"><div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">${config.merchantName} Terminal</div><form action="/generate" method="POST" style="width:100%"><input type="number" name="amount" class="amount" placeholder="0" required autofocus inputmode="decimal"><input type="text" name="title" placeholder="Payment Title (Optional)"><input type="text" name="name" placeholder="Client Name (Optional)"><input type="email" name="email" placeholder="Client Email (Optional)"><button type="submit">Create Request</button></form></div></body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">${getHeadMeta(config)}<style>${STYLES}</style></head><body><div class="container"><div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">${config.merchantName} POS Terminal</div><form action="/generate" method="POST" style="width:100%"><input type="number" name="amount" class="amount" placeholder="0" required autofocus inputmode="decimal"><input type="text" name="title" placeholder="Payment Title (Optional)"><input type="text" name="name" placeholder="Client Name (Optional)"><input type="email" name="email" placeholder="Client Email (Optional)"><button type="submit">Create Request</button></form></div></body></html>`;
 }
 
-function getSharePageHTML(amount, qrUrl, subLink, shareTitle) {
-  const safeTitle = (shareTitle || "Payment").toString().replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+function getSharePageHTML(amount, qrUrl, subLink, config, paymentTitle) {
+  const safeTitle = (paymentTitle || "Payment").toString().replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   const safeLink = (subLink || "").toString().replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>${STYLES} .qr-box{background:#fff; padding:15px; border-radius:20px; margin-bottom:40px;} img{display:block; width:220px; height:220px;}</style></head><body><div class="container"><div style="font-size:48px; font-weight:200; margin-bottom:40px;">${amount}</div><div class="qr-box"><img src="${qrUrl}"></div><button onclick="doShare()">Share Link</button><button style="background:transparent; color:#fff; border:1px solid var(--border); margin-top:10px;" onclick="doCopy()">Copy Link</button><a href="/" style="color:var(--sub); text-decoration:none; font-size:11px; margin-top:30px; text-transform:uppercase;">Cancel</a></div><script> function showAlert(msg) { const alert = document.createElement('div'); alert.className = 'alert'; alert.textContent = msg; document.body.appendChild(alert); setTimeout(() => alert.remove(), 2500); } function doShare(){ if(navigator.share){navigator.share({title:'${safeTitle}', url:'${safeLink}'});}else{doCopy();} } function doCopy(){ navigator.clipboard.writeText('${safeLink}'); showAlert('Link Copied!'); } </script></body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES} .qr-box{background:#fff; padding:15px; border-radius:20px; margin-bottom:40px;} img{display:block; width:220px; height:220px;}</style></head><body><div class="container"><div style="font-size:48px; font-weight:200; margin-bottom:40px;">${amount}</div><div class="qr-box"><img src="${qrUrl}"></div><button onclick="doShare()">Share Link</button><button style="background:transparent; color:#fff; border:1px solid var(--border); margin-top:10px;" onclick="doCopy()">Copy Link</button><a href="/" style="color:var(--sub); text-decoration:none; font-size:11px; margin-top:30px; text-transform:uppercase;">Cancel</a></div><script> function showAlert(msg) { const alert = document.createElement('div'); alert.className = 'alert'; alert.textContent = msg; document.body.appendChild(alert); setTimeout(() => alert.remove(), 2500); } function doShare(){ if(navigator.share){navigator.share({title:'${safeTitle}', url:'${safeLink}'});}else{doCopy();} } function doCopy(){ navigator.clipboard.writeText('${safeLink}'); showAlert('Link Copied!'); } </script></body></html>`;
 }
 
-function getConfirmationHTML(id, amt, status, userName, userEmail, userTitleOverride, timestamp, config) {
+function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, config, userTitleOverride) {
   const isPaid = String(status).toUpperCase() === "PAID";
   const icon = isPaid ? "✓" : "✕";
   const color = isPaid ? "#4CAF50" : "#ff4444";
@@ -623,7 +624,7 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, userTitleOver
     ? `<div class="row"><span>Date & Time<br>(GMT+3)</span><span class="val" style="font-size:11px;">${dateStr}</span></div>`
     : "";
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES}</style></head><body> <canvas id="receiptCanvas" style="display:none;"></canvas> <div class="container"> <div class="receipt-card" id="receiptCard"> <div style="font-size:60px;margin-bottom:20px;color:${color}">${icon}</div> ${titleRow} ${nameRow} ${emailRow} <div class="row"><span>Amount</span><span class="val">${amt} IQD</span></div> <div class="row"><span>Order ID</span><span class="val">${id}</span></div> ${timestampRow} <div class="row"><span>Status</span><span class="val" style="color:${color}">${String(status).toUpperCase()}</span></div> <div style="margin-top:30px;padding-top:20px;border-top:1px solid var(--border);color:var(--sub);font-size:12px;font-weight:600;">${merchantName}</div> </div> ${merchantEmail ? `<button onclick="sendEmail()">Email Receipt</button>` : ""} <button style="background:transparent; color:#fff; border:1px solid var(--border);" onclick="shareGeneral()">Share Receipt</button> </div> <script>
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES}</style></head><body> <canvas id="receiptCanvas" style="display:none;"></canvas> <div class="container"> <div class="receipt-card" id="receiptCard"> <div style="font-size:60px;margin-bottom:20px;color:${color}">${icon}</div> ${titleRow} ${nameRow} ${emailRow} <div class="row"><span>Amount</span><span class="val">${amt} IQD</span></div> <div class="row"><span>Order ID</span><span class="val">${id}</span></div> ${timestampRow} <div class="row"><span>Status</span><span class="val" style="color:${color}">${String(status).toUpperCase()}</span></div> <div style="margin-top:30px;padding-top:20px;border-top:1px solid var(--border);color:var(--sub);font-size:12px;font-weight:600;">Merchant ${merchantName}</div> </div> ${merchantEmail ? `<button onclick="sendEmail()">Email Receipt</button>` : ""} <button style="background:transparent; color:#fff; border:1px solid var(--border);" onclick="shareGeneral()">Share Receipt</button> </div> <script>
   const receiptData = {
     title: ${JSON.stringify(String(receiptTitle || ""))},
     id: ${JSON.stringify(String(id || ""))},
@@ -713,7 +714,7 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, userTitleOver
       ctx.fillStyle = receiptData.color;
       ctx.textAlign = 'center';
       ctx.direction = 'ltr';
-      ctx.fillText(receiptData.icon, 300, 150);
+      ctx.fillText(receiptData.icon, 350, 150);
 
       // ✅ Title in PNG (centered, RTL safe)
       let y = 230;
@@ -727,7 +728,7 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, userTitleOver
 
         const lines = wrapTextLines(ctx, title, 460);
         for (let i = 0; i < lines.length; i++) {
-          ctx.fillText(wrapDir(lines[i], rtl), 300, y);
+          ctx.fillText(wrapDir(lines[i], rtl), 350, y);
           y += 34;
         }
         y += 10;
@@ -739,7 +740,7 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, userTitleOver
       ctx.textAlign = 'left';
 
       const drawRow = (label, val, valColor = '#fff') => {
-        if(!val) return;
+        if(!val || val === 'N/A') return;
 
         ctx.direction = 'ltr';
         ctx.textAlign = 'left';
@@ -751,7 +752,7 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, userTitleOver
         ctx.fillStyle = valColor;
         ctx.direction = rtl ? 'rtl' : 'ltr';
         ctx.textAlign = 'right';
-        ctx.fillText(wrapDir(v, rtl), 520, y);
+        ctx.fillText(wrapDir(v, rtl), 620, y);
 
         y += 50;
       };
@@ -771,7 +772,7 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, userTitleOver
         ctx.font = '14px ' + FONT_STACK;
         ctx.textAlign = 'right';
         ctx.direction = 'ltr';
-        ctx.fillText(receiptData.timestamp, 520, y);
+        ctx.fillText(receiptData.timestamp, 620, y);
 
         ctx.font = '20px ' + FONT_STACK;
         y += 50;
@@ -782,14 +783,20 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, userTitleOver
       ctx.strokeStyle = '#222';
       ctx.beginPath();
       ctx.moveTo(80, y+20);
-      ctx.lineTo(520, y+20);
+      ctx.lineTo(620, y+20);
       ctx.stroke();
 
       ctx.font = '16px ' + FONT_STACK;
       ctx.fillStyle = '#555';
       ctx.textAlign = 'center';
       ctx.direction = 'ltr';
-      ctx.fillText('BY ' + receiptData.merchantName.toUpperCase(), 300, y+60);
+      ctx.fillText('BY MERCHANT ' + receiptData.merchantName.toUpperCase(), 350, y+60);
+
+      ctx.font = '14px ' + FONT_STACK;
+      ctx.fillStyle = '#555';
+      ctx.textAlign = 'center';
+      ctx.direction = 'ltr';
+      ctx.fillText('Thank you for your purchase', 350, y+90);
 
       canvas.toBlob(blob => resolve(blob), 'image/png');
     });

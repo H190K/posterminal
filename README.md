@@ -44,22 +44,27 @@ We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment
 * **Responsive Mobile-First UI** - Optimized for iOS and mobile devices with native-like experience
 * **PWA Ready** - Installable as a web app with custom icons and splash screens
 * **Dark Mode Design** - Modern dark theme optimized for OLED displays
-* **Digital Receipts** - Canvas-based receipt generation with sharing capabilities
-* **Error Recovery** - User-friendly error messages with merchant contact options
+* **Digital Receipts** - Professional, brand-aware receipts:
+  * **High-Resolution PNG**: Generated on-the-fly using HTML5 Canvas.
+  * **Arabic/RTL Support**: Native rendering for Arabic titles and customer names (avoids character reversal).
+  * **Brand Alignment**: Centered titles, centered merchant name, and "Thank you for your purchase" footer.
+  * **RTL Wrapping**: Long titles wrap correctly while maintaining right-to-left flow.
+  * **Easy Sharing**: Native mobile sharing integration.
+* **Error Recovery** - Branding-consistent error pages with PWA icons and merchant contact options.
 
 ### 🔔 Notifications
 
-* **Discord Webhooks** - Real-time transaction notifications to Discord channels
-* **Rich Embeds** - Formatted transaction details with status indicators and POS order IDs
-* **Robust Timestamp Handling** - Supports multiple timestamp formats (Unix, ISO 8601, milliseconds)
-* **Timezone Support** - Timestamps displayed in GMT+3 (Asia/Baghdad timezone, configurable)
+* **Discord Webhooks** - Real-time transaction notifications with rich formatting.
+* **Rich Embeds** - Color-coded status indicators (Success/Fail) with full transaction details.
+* **Arabic-Safe Notifications**: Automatically detects and wraps Arabic text with RTL control characters to ensure correct display on Discord.
+* **Robust Timestamp Handling** - Supports multiple timestamp formats (Unix, ISO 8601, milliseconds) with automatic conversion to GMT+3.
 
 ### ⚙️ Customization
 
-* **Branding Support** - Custom merchant name, logo, and contact information
-* **Email Integration** - Optional email receipt functionality
-* **WhatsApp Integration** - Direct customer support via WhatsApp
-* **Flexible Configuration** - All settings managed through environment variables
+* **Branding Support** - Unified `config` object manages merchant name, email, WhatsApp, and favicon.
+* **Smart Overrides**: Support for `SINDIPAY_TLD_OVERRIDE` and `SINDIPAY_API_KEY_OVERRIDE` for safe local testing without modifying secrets.
+* **Email Integration** - Optional client-side email receipt functionality.
+* **WhatsApp Integration** - Direct support link using the `MERCHANT_WHATSAPP` number.
 
 ---
 
@@ -81,39 +86,29 @@ We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment
 
 ### Digital Signatures (HMAC)
 
-The system uses `crypto.subtle` to generate **HMAC-SHA256** signatures:
+The system uses `crypto.subtle` to generate **HMAC-SHA256** signatures for all sensitive URLs:
 
 ```javascript
 // Signature format: HMAC-SHA256(TYPE-data, WEBHOOK_SECRET)
-// Where TYPE is either "PAY" or "RCT"
+// TYPE prefixes: "PAY" (Payment links) or "RCT" (Receipts)
 ```
 
 **Benefits:**
 
-* Any parameter change invalidates the signature
-* Requests with invalid signatures are automatically rejected
-* Context separation using prefixes prevents signature reuse:
+* **Tamper Protection**: Any change to URL parameters (amount, timestamp, encrypted data) invalidates the signature.
+* **Replay Protection**: Signatures are tied to unique timestamps and POS Order IDs.
+* **Context Separation**: Using unique prefixes (`PAY-` and `RCT-`) ensures a payment signature cannot be misused as a receipt signature, and vice-versa.
 
-  * `PAY-` prefix for payment links (30-minute validity)
-  * `RCT-` prefix for receipts (48-hour validity)
+### Receipt & Link Privacy (AES-GCM)
 
-A payment link signature **cannot** be reused to fake a receipt, even if stolen.
+The system uses **stateless encryption** to protect Customer PII (Personally Identifiable Information):
 
-### Receipt URL Privacy
-
-The **final receipt URL** can be sanitized:
-
-* ✅ Receipt URL does **not** expose customer name/email in the query string
-* ✅ Receipt page still shows customer name/email
-* ✅ Discord webhook can still receive customer name/email
-
-How it works (stateless):
-
-* Instead of putting `name`/`email` into `/success`, the worker places customer details into an **encrypted token** (for example `c=`) using `WEBHOOK_SECRET`.
-* The receipt signature binds to that token rather than raw PII fields.
-* The `/success` route decrypts the token to render customer details.
-
-> This keeps the project **stateless** (no database) while keeping PII out of the visible URL.
+1. **Encryption**: Customer names, emails, and custom payment titles are encrypted using **AES-256-GCM** with a key derived from your `WEBHOOK_SECRET`.
+2. **Encrypted Token**: This data is passed in the URL as a base64url-encoded `c=` parameter.
+3. **Privacy**:
+   * ✅ Browser history and logs do **not** show customer names or emails in plain text.
+   * ✅ The digital receipt still displays all details after secure decryption.
+   * ✅ The system remains **stateless** (no database required to store customer info).
 
 ### Payment Flow
 
@@ -126,28 +121,29 @@ sequenceDiagram
     participant Discord
 
     Admin->>Worker: Login with password
-    Worker->>Admin: Set secure cookie
+    Worker->>Admin: Set secure cookie (2m expiry)
     
-    Admin->>Worker: Create payment (amount, name, email)
-    Worker->>Worker: Generate POS Order ID
-    Worker->>Worker: Generate signed URL + QR
+    Admin->>Worker: Create payment (amount, title, name, email)
+    Worker->>Worker: Encrypt PII (AES-GCM)
+    Worker->>Worker: Sign URL (HMAC-SHA256, PAY prefix)
     Worker->>Admin: Return QR code page
     
     Customer->>Worker: Scan QR / Open link
-    Worker->>Worker: Verify signature & expiry
+    Worker->>Worker: Verify PAY signature & expiry
+    Worker->>Worker: Decrypt PII for gateway
     Worker->>SindiPay: Create payment order (POS-xxxxx)
     SindiPay->>Customer: Redirect to payment page
     
     Customer->>SindiPay: Complete payment
     SindiPay->>Worker: Webhook notification
     Worker->>Worker: Verify webhook secret
-    Worker->>Discord: Send notification (with POS order ID & timestamp)
+    Worker->>Discord: Send notification (RTL-wrapped for Arabic)
     
     SindiPay->>Customer: Redirect to success page
-    Customer->>Worker: Access receipt
-    Worker->>Worker: Verify receipt signature
-    Worker->>SindiPay: Verify payment status
-    Worker->>Customer: Display digital receipt (with POS order ID)
+    Customer->>Worker: Access receipt (via encrypted c token)
+    Worker->>Worker: Verify RCT signature & expiry
+    Worker->>SindiPay: Verify payment status (API)
+    Worker->>Customer: Render digital receipt (Canvas PNG)
 ```
 
 ### Security Layers
@@ -296,6 +292,7 @@ In the Cloudflare Dashboard:
 2. **Create Payment Request**
 
    * Enter the amount
+   * Optionally add a **Payment Title** (e.g., "Coffee Order #123")
    * Optionally add customer name and email
    * Click "Create Request"
    * System generates unique POS order ID (POS-xxxxx)
@@ -311,6 +308,7 @@ In the Cloudflare Dashboard:
    * Check Discord for real-time notifications (if configured)
    * Each payment triggers an embed with:
 
+     * **Payment Title** (if provided)
      * POS Order ID (POS-xxxxx)
      * Transaction timestamp (GMT+3)
      * Payment status
@@ -330,6 +328,7 @@ In the Cloudflare Dashboard:
    * Automatically redirected to receipt page
    * Receipt shows:
 
+     * **Payment Title** (if provided)
      * POS Order ID
      * Transaction date/time (GMT+3)
      * Payment amount and status
@@ -619,11 +618,10 @@ Edit the CSS variables in the `STYLES` constant:
 
 ### Customize Order ID Format
 
-Edit the order ID generation in the `/pay` route:
+Edit the order ID generation in the `/generate` route:
 
 ```javascript
-order_id: `POS-${Date.now()}`  // Change 'POS' to your prefix
-// Examples: `SHOP-${Date.now()}`, `ORDER-${Date.now()}`
+const orderId = `POS-${generateRandomString(5)}`; // Change 'POS' to your prefix
 ```
 
 ### Switch SindiPay domain (test vs production)

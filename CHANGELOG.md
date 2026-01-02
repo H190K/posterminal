@@ -4,6 +4,31 @@ This file is a **quick index** of what changed between versions. For full detail
 
 ---
 
+## v1.1.4 (02.01.2026)
+
+* ✅ **Canvas rendering improvements**: aligned canvas receipt generation with reference implementation:
+  * Icon position adjusted for better centering
+  * Row alignment updated (values aligned at x=620)
+  * Timestamp alignment improved
+  * Footer separator line extended
+  * Added "Thank you for your purchase" as a second footer line
+  * Title centering fixed (x=350 for proper alignment)
+* ✅ **Favicon/PWA icon fixes**: resolved favicon disappearance on QR page and error pages:
+  * Integrated `getHeadMeta` function in all HTML responses
+  * QR page now displays favicon correctly
+  * All error pages include favicon/PWA icon metadata
+* ✅ **Page title consistency**: updated page titles to include merchant name:
+  * Login page: `${MERCHANT_NAME} Auth`
+  * Terminal page: `${MERCHANT_NAME} POS Terminal`
+  * Receipt footer: `Merchant ${MERCHANT_NAME}`
+  * Canvas footer: `BY MERCHANT ${MERCHANT_NAME}`
+* ✅ **Function signature alignment**: aligned HTML function signatures with reference implementation:
+  * `getSharePageHTML(amount, qrUrl, subLink, config, paymentTitle)`
+  * `getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, config, userTitleOverride)`
+* ✅ **WhatsApp behavior preserved**: maintained number-only input for WhatsApp (config.merchantWhatsapp used directly in wa.me link)
+
+---
+
 ## v1.1.3 (02.01.2026)
 
 * ✅ **Payment title override (terminal UI)**: added an optional **Payment Title** input on the create page.  
