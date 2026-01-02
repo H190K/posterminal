@@ -709,14 +709,18 @@ Found a bug or have a feature request? Please:
 
 ## 📄 License
 
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+This project is **free for everyone's personal use**! We want to keep it open for the community, but to protect our hard work from corporate abuse or unauthorized resale, commercial use requires a separate license.
+
+For commercial use inquiries, please contact: **info@h190k.com**
+
+See the [LICENSE](LICENSE) file for the full legal terms.
 
 ### What this means:
 
-* ✅ Commercial use allowed
-* ✅ Modification allowed
-* ✅ Distribution allowed
-* ✅ Private use allowed
+* ✅ Personal use allowed (free)
+* ❌ Commercial use prohibited without consent (contact info@h190k.com)
+* ✅ Modification allowed for personal use
+* ❌ Selling or sublicensing prohibited
 * ⚠️ Liability: Software is provided "as is"
 * ⚠️ Warranty: No warranty provided
 

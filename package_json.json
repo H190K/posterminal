@@ -20,8 +20,8 @@
     "qr-code",
     "payment-gateway"
   ],
-  "author": "Your Name",
-  "license": "MIT",
+  "author": "Hasan Albehadili",
+  "license": "Custom",
   "repository": {
     "type": "git",
     "url": "https://github.com/yourusername/cloudflare-pos-terminal.git"

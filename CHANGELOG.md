@@ -11,6 +11,7 @@ This file is a **quick index** of what changed between versions. For full detail
   * Wrapped all user variables in HTML templates with escape functions
   * Centralized contact buttons via `getContactButtons()` helper with proper escaping
   * Fixed `escapeXml()` function with correct HTML entity encoding (&amp;, &lt;, &gt;, &quot;, &#39;)
+* 🛡️ **Friendly License Update**: We've updated our license to keep this project free for everyone's personal use! To protect our hard work from corporate abuse or unauthorized resale, we now require a quick chat for commercial use (reach out at info@h190k.com). This helps us keep the project open and free for the community!
 * ✅ **Config structure alignment**: unified config object to match Pro implementation:
   * Replaced hardcoded config with `buildMerchantConfig(env)` helper function
   * Renamed `merchantName` → `name` throughout codebase
