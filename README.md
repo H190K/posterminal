@@ -663,7 +663,7 @@ If my projects make your life easier, consider supporting development. Your supp
 
 <div align="center">
 
-Made with ❤️ by the h190k team
+Made with ❤️ by the h190k 
 
 [Report Bug](https://github.com/h190k/posterminal/issues) · [Request Feature](https://github.com/h190k/posterminal/issues) · [Documentation](https://github.com/h190k/posterminal/wiki)
 
