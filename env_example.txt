@@ -18,10 +18,20 @@
 # Set with: npx wrangler secret put TERMINAL_PASSWORD
 TERMINAL_PASSWORD=your-secure-password-here
 
-# Random string for HMAC signatures and webhook validation
+# Webhook authentication and verification secret
 # Generate with: openssl rand -hex 32
-# Set with: npx wrangler secret put WEBHOOK_SECRET
-WEBHOOK_SECRET=random-secret-key-here
+# Set with: npx wrangler secret put WEBHOOK_AUTH_SECRET
+WEBHOOK_AUTH_SECRET=random-auth-secret-here
+
+# Link signature signing and session tokens secret
+# Generate with: openssl rand -hex 32
+# Set with: npx wrangler secret put LINK_SIGNING_SECRET
+LINK_SIGNING_SECRET=random-link-secret-here
+
+# PII encryption for customer data secret
+# Generate with: openssl rand -hex 32
+# Set with: npx wrangler secret put PII_ENCRYPTION_SECRET
+PII_ENCRYPTION_SECRET=random-encryption-secret-here
 
 # Your SindiPay API key
 # Get from: https://sindipay.com/dashboard
@@ -47,27 +57,10 @@ MERCHANT_WHATSAPP=1234567890
 MERCHANT_FAVICON=https://example.com/favicon.png
 
 # ----------------------------------------
-# OPTIONAL FEATURES
+# OPTIONAL SECRETS
 # ----------------------------------------
 
 # Discord webhook URL for transaction notifications
 # Create at: Discord Server Settings > Integrations > Webhooks
 # Set with: npx wrangler secret put DISCORD_WEBHOOK_URL
-DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/your-webhook-url
-
-# ----------------------------------------
-# CUSTOMIZATION OPTIONS
-# ----------------------------------------
-
-# Link expiration times (in milliseconds)
-# Default: 30 minutes for payment links
-TIME_PAY_LINK=1800000
-
-# Default: 48 hours for receipt access
-TIME_RECEIPT=172800000
-
-# Payment currency code
-CURRENCY=IQD
-
-# Timezone for timestamps (IANA format)
-TIMEZONE=Asia/Baghdad
+# DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/your-webhook-url

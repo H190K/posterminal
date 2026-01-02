@@ -4,6 +4,57 @@ This file is a **quick index** of what changed between versions. For full detail
 
 ---
 
+## v1.1.5 (03.01.2026)
+
+### 🛡️ Security
+
+* **Split Secret Architecture**: Implemented specialized secrets for different security purposes:
+  * `WEBHOOK_AUTH_SECRET` - Webhook authentication and verification
+  * `LINK_SIGNING_SECRET` - Link signature signing and session tokens
+  * `PII_ENCRYPTION_SECRET` - PII encryption for customer data
+* **Session Security**: Implemented signed session tokens with HMAC-SHA256 signatures:
+  * No password storage in cookies or tokens
+  * Short 2-minute session expiration
+  * Tamper-proof token validation
+* **Webhook Verification**: Two-step verification process:
+  * Signature verification using `WEBHOOK_AUTH_SECRET`
+  * Gateway verification with SindiPay API (never trusts webhook payload)
+* **Webhook URL Sanitization**: Removed insecure `?secret=` parameters and PII from URLs:
+  * Customer data moved to encrypted `c=` tokens
+  * HMAC-based signature authentication instead of query parameters
+* **Discord Mention Protection**: Added `allowed_mentions: { parse: [] }` to prevent @everyone/@here abuse
+
+### ⚙️ Config Changes
+
+* **New Environment Variables**:
+  * `WEBHOOK_AUTH_SECRET` - Required for webhook authentication
+  * `LINK_SIGNING_SECRET` - Required for link signing and sessions
+  * `PII_ENCRYPTION_SECRET` - Required for PII encryption
+* **Updated Environment Variables Section**:
+  * Clear separation between Required, Enhanced Security (NEW), and Optional variables
+  * Enhanced security secrets table with examples
+* **Removed Environment Variables**:
+  * `WEBHOOK_SECRET` - No longer used (replaced by specialized secrets)
+
+### 🔧 Compatibility Notes
+
+* **Breaking Change**: `WEBHOOK_SECRET` is no longer used - must migrate to specialized secrets
+* **Webhook URL Format Changed**: Removed `?secret=` parameters from webhook URLs
+  * Old: `https://worker.webhook.dev/webhook?secret=RAW_SECRET`
+  * New: `https://worker.webhook.dev/webhook?c=ENCRYPTED_DATA&time=TIMESTAMP&sig=SIGNATURE`
+* **SindiPay Integration**: Updated webhook configuration to use signature-based authentication
+* **Environment Variables**: Three new secrets required for full functionality
+
+### 📝 Documentation Updates
+
+* **Enhanced README**: Added comprehensive Security, Webhook Setup, and Upgrade Notes sections
+* **Environment Variables**: Complete table with all variables, requirements, and fallback behavior
+* **Webhook Configuration**: Detailed setup instructions and testing examples
+* **Upgrade Guide**: Step-by-step migration instructions for v1.1.5
+* **Troubleshooting**: Added section for common webhook and security-related issues
+
+---
+
 ## v1.1.4 (02.01.2026)
 
 * ✅ **Security hardening**: integrated comprehensive security features from reference implementation:
@@ -79,7 +130,7 @@ This file is a **quick index** of what changed between versions. For full detail
 ## v1.1.1 (26.12.2025)
 
 * ✅ **Receipt URL privacy**: `/success` links no longer expose customer name/email in the URL.
-* ✅ **Stateless encrypted token**: customer info stored in encrypted `c=` token (derived from `WEBHOOK_SECRET`).
+* ✅ **Stateless encrypted token**: customer info stored in encrypted `c=` token (derived from `PII_ENCRYPTION_SECRET` in v1.1.5).
 * ✅ **Receipt signature binding**: receipt signature binds to `c=` token instead of raw PII fields.
 * ✅ **Cross-check**: decrypted token verifies embedded `oid` matches URL `oid`.
 * ✅ **Random order IDs**: introduces `generateRandomString()` for `POS-xxxxx` style IDs.

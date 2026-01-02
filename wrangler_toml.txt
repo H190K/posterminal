@@ -20,10 +20,12 @@ MERCHANT_FAVICON = "https://via.placeholder.com/180x180/000000/FFFFFF/?text=POS"
 
 # Sensitive secrets - set using: npx wrangler secret put SECRET_NAME
 # Do NOT put actual secret values here
-# 
+#
 # Required secrets to set:
 # - TERMINAL_PASSWORD (your dashboard login password)
-# - WEBHOOK_SECRET (random string for HMAC signatures)
+# - WEBHOOK_AUTH_SECRET (random string for webhook authentication)
+# - LINK_SIGNING_SECRET (random string for link signing and sessions)
+# - PII_ENCRYPTION_SECRET (random string for PII encryption)
 # - API_KEY (your SindiPay API key)
 # - DISCORD_WEBHOOK_URL (optional, for transaction notifications)
 

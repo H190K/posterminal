@@ -112,7 +112,9 @@ npm install
 
 ```bash
 npx wrangler secret put TERMINAL_PASSWORD
-npx wrangler secret put WEBHOOK_SECRET
+npx wrangler secret put WEBHOOK_AUTH_SECRET
+npx wrangler secret put LINK_SIGNING_SECRET
+npx wrangler secret put PII_ENCRYPTION_SECRET
 npx wrangler secret put API_KEY
 ```
 

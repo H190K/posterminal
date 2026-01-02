@@ -38,7 +38,9 @@ function buildMerchantConfig(env) {
     whatsapp: (env.MERCHANT_WHATSAPP || "").toString().trim(),
     email: (env.MERCHANT_EMAIL || "").toString().trim(),
     terminalPassword: env.TERMINAL_PASSWORD || "",
-    webhookSecret: env.WEBHOOK_SECRET || "",
+    webhookAuthSecret: env.WEBHOOK_AUTH_SECRET || "",
+    linkSigningSecret: env.LINK_SIGNING_SECRET || "",
+    piiEncryptionSecret: env.PII_ENCRYPTION_SECRET || "",
     apiKey: (env.API_KEY || "").toString(),
     discordWebhookUrl: env.DISCORD_WEBHOOK_URL || "",
     tz: "Asia/Baghdad",
@@ -115,7 +117,7 @@ export default {
 
     const generateSignature = async (text, type) => {
       const encoder = new TextEncoder();
-      const keyData = encoder.encode(config.webhookSecret);
+      const keyData = encoder.encode(config.linkSigningSecret);
       const key = await crypto.subtle.importKey(
         "raw",
         keyData,
@@ -126,6 +128,62 @@ export default {
       const dataToSign = `${type}-${text}`;
       const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(dataToSign));
       return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, "0")).join("");
+    };
+
+    const parseCookie = (cookieHeader, name) => {
+      if (!cookieHeader) return null;
+      const cookies = cookieHeader.split(';').map(c => c.trim());
+      for (const cookie of cookies) {
+        const [key, ...valueParts] = cookie.split('=');
+        if (key === name) {
+          return valueParts.join('=');
+        }
+      }
+      return null;
+    };
+
+    const generateSessionToken = async () => {
+      const timestamp = Date.now().toString();
+      const random = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+      const payload = `${timestamp}|${random}`;
+      const encoder = new TextEncoder();
+      const keyData = encoder.encode(config.linkSigningSecret);
+      const key = await crypto.subtle.importKey(
+        "raw",
+        keyData,
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"]
+      );
+      const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(payload));
+      const sig = Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, "0")).join("");
+      return `${payload}.${sig}`;
+    };
+
+    const verifySessionToken = async (token) => {
+      if (!token) return false;
+      const parts = token.split('.');
+      if (parts.length !== 2) return false;
+      const [payload, sig] = parts;
+      const payloadParts = payload.split('|');
+      if (payloadParts.length !== 2) return false;
+      const timestamp = parseInt(payloadParts[0]);
+      const now = Date.now();
+      if (now - timestamp > 120 * 1000) return false;
+      const encoder = new TextEncoder();
+      const keyData = encoder.encode(config.linkSigningSecret);
+      const key = await crypto.subtle.importKey(
+        "raw",
+        keyData,
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"]
+      );
+      const expectedSig = await crypto.subtle.sign("HMAC", key, encoder.encode(payload));
+      const expectedSigHex = Array.from(new Uint8Array(expectedSig)).map(b => b.toString(16).padStart(2, "0")).join("");
+      return sig === expectedSigHex;
     };
 
     // -----------------------------
@@ -148,7 +206,7 @@ export default {
 
     const deriveAesKey = async () => {
       const encoder = new TextEncoder();
-      const raw = encoder.encode(config.webhookSecret);
+      const raw = encoder.encode(config.piiEncryptionSecret);
       const hash = await crypto.subtle.digest("SHA-256", raw);
       return crypto.subtle.importKey("raw", hash, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
     };
@@ -187,16 +245,18 @@ export default {
     // Auth
     // -----------------------------
     const cookieHeader = request.headers.get("Cookie") || "";
-    const isLoggedIn = cookieHeader.includes(`session=${config.terminalPassword}`);
+    const sessionToken = parseCookie(cookieHeader, "session");
+    const isLoggedIn = sessionToken ? await verifySessionToken(sessionToken) : false;
 
     if (request.method === "POST" && url.pathname === "/login") {
       const formData = await request.formData();
       if (formData.get("password") === config.terminalPassword) {
+        const token = await generateSessionToken();
         return new Response("Logged In", {
           status: 302,
           headers: {
             "Location": "/",
-            "Set-Cookie": `session=${config.terminalPassword}; HttpOnly; Secure; SameSite=Strict; Max-Age=120`
+            "Set-Cookie": `session=${token}; HttpOnly; Secure; SameSite=Strict; Max-Age=120`
           }
         });
       }
@@ -317,13 +377,13 @@ export default {
           `&ts=${paymentTimestamp}` +
           `&sig=${receiptSig}`;
 
-        // ✅ Keep name/email in webhook URL (Discord still sees them)
-        // ✅ Add title too so Discord can show it
+        const webhookC = await encryptPII({ name, email, title: paymentTitle });
+        const webhookTime = Date.now().toString();
+        const webhookSig = await generateSignature(`c=${webhookC}&time=${webhookTime}`, "WEBHOOK");
         const secureWebhookUrl =
-          `${url.origin}/webhook?secret=${encodeURIComponent(config.webhookSecret)}` +
-          `&name=${encodeURIComponent(name)}` +
-          `&email=${encodeURIComponent(email)}` +
-          `&title=${encodeURIComponent(paymentTitle)}`;
+          `${url.origin}/webhook?c=${encodeURIComponent(webhookC)}` +
+          `&time=${webhookTime}` +
+          `&sig=${webhookSig}`;
 
         const spResponse = await fetch(`${config.sindipayBase}/api/v1/payments/gateway/`, {
           method: "POST",
@@ -460,87 +520,135 @@ export default {
       }
 
       if (url.pathname === "/webhook") {
-        const secret = url.searchParams.get("secret");
-        if (secret !== config.webhookSecret) return new Response("Forbidden", { status: 403 });
+        const c = url.searchParams.get("c") || "";
+        const time = url.searchParams.get("time") || "";
+        const providedSig = url.searchParams.get("sig") || "";
 
-        const data = await request.json();
-        const rawClientName = url.searchParams.get("name") || "Guest";
-        const rawClientEmail = url.searchParams.get("email") || "No Email";
-        const rawTitle = url.searchParams.get("title") || "";
-
-        // ✅ RTL wrap if Arabic
-        const clientName = applyRtlWrap(rawClientName);
-        const clientEmail = applyRtlWrap(rawClientEmail);
-        const paymentTitle = applyRtlWrap(rawTitle || buildPaymentTitle(config.name, ""));
-
-        const isPaid = data.status === "PAID";
-        const icon = isPaid ? "✅" : "❌";
-        const color = isPaid ? 5763719 : 15548997;
-
-        let timeStr = "Just Now";
-        const timestamp = data.created_at || data.timestamp || data.created || data.date;
-
-        const fallbackNow = () => new Date().toLocaleString("en-US", {
-          year: "numeric", month: "short", day: "numeric",
-          hour: "2-digit", minute: "2-digit", second: "2-digit",
-          hour12: true, timeZone: config.tz
-        });
-
-        if (timestamp) {
-          try {
-            let date;
-            if (typeof timestamp === "string" && timestamp.includes("T")) {
-              date = new Date(timestamp);
-            } else if (typeof timestamp === "string" && /^\d{10}$/.test(timestamp)) {
-              date = new Date(parseInt(timestamp) * 1000);
-            } else if (typeof timestamp === "string" && /^\d{13}$/.test(timestamp)) {
-              date = new Date(parseInt(timestamp));
-            } else if (typeof timestamp === "number") {
-              date = new Date(timestamp < 10000000000 ? timestamp * 1000 : timestamp);
-            } else {
-              date = new Date(timestamp);
-            }
-
-            if (!isNaN(date.getTime())) {
-              timeStr = date.toLocaleString("en-US", {
-                year: "numeric", month: "short", day: "numeric",
-                hour: "2-digit", minute: "2-digit", second: "2-digit",
-                hour12: true, timeZone: config.tz
-              });
-            } else {
-              timeStr = fallbackNow();
-            }
-          } catch (e) {
-            timeStr = fallbackNow();
-          }
-        } else {
-          timeStr = fallbackNow();
+        if (!c || !time || !providedSig) {
+          return new Response("OK");
         }
 
-        const transactionId = data.order_id || data.id || "N/A";
+        const dataToCheck = `c=${c}&time=${time}`;
+        const expectedSig = await generateSignature(dataToCheck, "WEBHOOK");
 
-        if (config.discordWebhookUrl) {
-          await fetch(config.discordWebhookUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              embeds: [{
-                title: `${icon} POS Transaction Update`,
-                color,
-                fields: [
-                  { name: "Title", value: paymentTitle },
-                  { name: "Status", value: data.status || "N/A", inline: true },
-                  { name: "Amount", value: `${data.total_amount || "0"} IQD`, inline: true },
-                  { name: `Time (GMT+3)`, value: timeStr, inline: true },
-                  { name: "Client", value: clientName, inline: true },
-                  { name: "Email", value: clientEmail, inline: true },
-                  { name: "Order ID", value: transactionId }
-                ],
-                footer: { text: config.name || "POS System" },
-                timestamp: new Date().toISOString()
-              }]
-            })
+        if (providedSig !== expectedSig) {
+          return new Response("OK");
+        }
+
+        let clientName = "Guest";
+        let clientEmail = "No Email";
+        let paymentTitle = buildPaymentTitle(config.name, "");
+
+        try {
+          const pii = await decryptPII(c);
+          clientName = pii?.name || "Guest";
+          clientEmail = pii?.email || "No Email";
+          paymentTitle = pii?.title || buildPaymentTitle(config.name, "");
+        } catch (e) {
+          return new Response("OK");
+        }
+
+        const data = await request.json();
+        const paymentId = data.id || data.payment_id || data.order_id;
+
+        if (!paymentId) {
+          return new Response("OK");
+        }
+
+        try {
+          const verifyResponse = await fetch(`${config.sindipayBase}/api/v1/payments/gateway/${paymentId}/`, {
+            method: "GET",
+            headers: {
+              "X-API-Key": config.apiKey,
+              "User-Agent": `${config.name}-POS/1.1.1`,
+              "Accept": "application/json"
+            }
           });
+
+          if (!verifyResponse.ok) {
+            return new Response("OK");
+          }
+
+          const verifiedData = await verifyResponse.json();
+          const verifiedStatus = verifiedData.status || "FAILED";
+          const verifiedAmount = verifiedData.total_amount || "0";
+          const verifiedOrderId = verifiedData.order_id || paymentId;
+          const verifiedCreatedAt = verifiedData.created_at;
+
+          const isPaid = verifiedStatus === "PAID";
+          const icon = isPaid ? "✅" : "❌";
+          const color = isPaid ? 5763719 : 15548997;
+
+          let timeStr = "Just Now";
+          const timestamp = verifiedCreatedAt || data.created_at || data.timestamp || data.created || data.date;
+
+          const fallbackNow = () => new Date().toLocaleString("en-US", {
+            year: "numeric", month: "short", day: "numeric",
+            hour: "2-digit", minute: "2-digit", second: "2-digit",
+            hour12: true, timeZone: config.tz
+          });
+
+          if (timestamp) {
+            try {
+              let date;
+              if (typeof timestamp === "string" && timestamp.includes("T")) {
+                date = new Date(timestamp);
+              } else if (typeof timestamp === "string" && /^\d{10}$/.test(timestamp)) {
+                date = new Date(parseInt(timestamp) * 1000);
+              } else if (typeof timestamp === "string" && /^\d{13}$/.test(timestamp)) {
+                date = new Date(parseInt(timestamp));
+              } else if (typeof timestamp === "number") {
+                date = new Date(timestamp < 10000000000 ? timestamp * 1000 : timestamp);
+              } else {
+                date = new Date(timestamp);
+              }
+
+              if (!isNaN(date.getTime())) {
+                timeStr = date.toLocaleString("en-US", {
+                  year: "numeric", month: "short", day: "numeric",
+                  hour: "2-digit", minute: "2-digit", second: "2-digit",
+                  hour12: true, timeZone: config.tz
+                });
+              } else {
+                timeStr = fallbackNow();
+              }
+            } catch (e) {
+              timeStr = fallbackNow();
+            }
+          } else {
+            timeStr = fallbackNow();
+          }
+
+          const rtlClientName = applyRtlWrap(clientName);
+          const rtlClientEmail = applyRtlWrap(clientEmail);
+          const rtlPaymentTitle = applyRtlWrap(paymentTitle);
+
+          if (config.discordWebhookUrl) {
+            await fetch(config.discordWebhookUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                embeds: [{
+                  title: `${icon} POS Transaction Update`,
+                  color,
+                  fields: [
+                    { name: "Title", value: rtlPaymentTitle },
+                    { name: "Status", value: verifiedStatus || "N/A", inline: true },
+                    { name: "Amount", value: `${verifiedAmount || "0"} IQD`, inline: true },
+                    { name: `Time (GMT+3)`, value: timeStr, inline: true },
+                    { name: "Client", value: rtlClientName, inline: true },
+                    { name: "Email", value: rtlClientEmail, inline: true },
+                    { name: "Order ID", value: verifiedOrderId }
+                  ],
+                  footer: { text: config.name || "POS System" },
+                  timestamp: new Date().toISOString()
+                }],
+                allowed_mentions: { parse: [] }
+              })
+            });
+          }
+        } catch (e) {
+          return new Response("OK");
         }
 
         return new Response("OK");
