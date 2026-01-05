@@ -315,7 +315,8 @@ export default {
 
         if (Date.now() - parseInt(time) > TIME_PAY_LINK) {
           const subject = encodeURIComponent("About Expired Payment Link");
-          return new Response(getErrorHTML("Link Expired.<br>This payment link is over 30 minutes old.", getContactButtons(config, subject), config), {
+          const minutes = Math.floor(TIME_PAY_LINK / 60000);
+          return new Response(getErrorHTML(`Link Expired.<br>This payment link is over ${minutes} minutes old.`, getContactButtons(config, subject), config), {
             headers: { "Content-Type": "text/html" }
           });
         }
@@ -434,7 +435,8 @@ export default {
 
         if (Date.now() - parseInt(time) > TIME_RECEIPT) {
           const subject = encodeURIComponent("About Receipt " + paymentId);
-          return new Response(getErrorHTML("Receipt Expired.<br>This receipt is older than 48 hours.", getContactButtons(config, subject), config), {
+          const hours = Math.floor(TIME_RECEIPT / 3600000);
+          return new Response(getErrorHTML(`Receipt Expired.<br>This receipt is older than ${hours} hours.`, getContactButtons(config, subject), config), {
             headers: { "Content-Type": "text/html" }
           });
         }

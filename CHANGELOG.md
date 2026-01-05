@@ -6,6 +6,15 @@ This file is a **quick index** of what changed between versions. For full detail
 
 ---
 
+## v1.1.5-1 (05.01.2026)
+
+* ✅ **Dynamic expiration messages**: error pages now automatically reflect the configured expiration times:
+  * Payment link expiration message now calculates minutes from `TIME_PAY_LINK` constant
+  * Receipt link expiration message now calculates hours from `TIME_RECEIPT` constant
+  * No more hardcoded "30 minutes" or "48 hours" in error text
+
+---
+
 ## v1.1.5 (03.01.2026)
 
 ### 🛡️ Security

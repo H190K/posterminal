@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-v1.1.5-blue?style=for-the-badge)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v1.1.5--1-blue?style=for-the-badge)](CHANGELOG.md)
 <a href="https://developers.cloudflare.com/workers/"><img src="https://img.shields.io/badge/Cloudflare-Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" /></a> <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript"><img src="https://img.shields.io/badge/JavaScript-ES2023-yellow?style=for-the-badge&logo=javascript&logoColor=white" /></a> <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-Runtime-339933?style=for-the-badge&logo=node.js&logoColor=Yellow" /></a> <a href="https://sindipay.com/en/"><img src="https://img.shields.io/badge/Payments-SindiPay-0052cc?style=for-the-badge&logo=creditcard&logoColor=white" /></a> <a href="https://discord.com/"><img src="https://img.shields.io/badge/Notifications-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" /></a>
 
 </div>
@@ -32,11 +32,12 @@ We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment
    2. [💳 Payments](#-payment-processing)
    3. [📱 UX/UI](#-user-experience)
    4. [🔔 Notifications](#-notifications)
-3. [⚙️ Configuration](#%EF%B8%8F-configuration)
-   1. [Environment Variables](#%EF%B8%8F-environment-variables)
+3. [⚙️ Configuration](#-configuration)
+   1. [Environment Variables](#-environment-variables)
    2. [Favicon Setup](#-favicon-implementation-note)
-   3. [Customization](#%EF%B8%8F-customization)
-   4. [Timezone](#timezone-configuration)
+   3. [Customization](#-customization)
+   4. [Timeout Configuration](#timeout-configuration)
+   5. [Timezone](#timezone-configuration)
 4. [📖 Usage Guide](#-usage-guide)
    1. [1. Dashboard Login](#1-dashboard-login)
    2. [2. Creating Payment Links](#2-creating-payment-links)
@@ -105,9 +106,7 @@ npx wrangler deploy
 
 * **Zero Trust Authentication** - Password-protected dashboard with secure, HttpOnly, SameSite=Strict cookies
 * **Tamper-Proof Links** - Uses HMAC-SHA256 digital signatures to ensure payment links and receipts cannot be forged or altered
-* **Time-Sensitive Security**
-  * Payment Links expire after **30 minutes**
-  * Receipts remain accessible for **48 hours**
+* **Time-Sensitive Security** - Payment links and receipts expire based on configured timeouts (see [Timeout Configuration](#timeout-configuration))
 * **Context Separation** - Different signature types (PAY/RCT) prevent signature reuse across contexts
 * **Webhook Validation** - Secret-based webhook authentication ensures only legitimate payment notifications are processed
 * **Receipt URL Privacy** - Receipt URLs can be **sanitized** (no customer name/email in the browser URL), while still displaying them on the receipt page
@@ -253,6 +252,20 @@ const buildPaymentTitle = (merchantName, titleOverride) => {
 // Default: "Payment - My Shop"
 // Custom title typed by user: "Coffee Order - My Shop"
 // Arabic RTL: "طلب قهوة - متجري" (properly wrapped for Discord)
+```
+
+### Timeout Configuration
+
+**Default Behavior**:
+- Payment links expire after **30 minutes**
+- Receipts remain accessible for **48 hours**
+- Error messages **automatically update** to reflect the configured times
+
+**Code Implementation**:
+```javascript
+// From index.js - Core timings (in milliseconds)
+const TIME_PAY_LINK = 30 * 60 * 1000;    // 30 minutes
+const TIME_RECEIPT  = 48 * 60 * 60 * 1000; // 48 hours
 ```
 
 ### Switch SindiPay domain (test vs production)
