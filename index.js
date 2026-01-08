@@ -313,6 +313,52 @@ export default {
         const time = url.searchParams.get("time") || "0";
         const providedSig = url.searchParams.get("sig");
 
+        // -----------------------------
+        // ✅ Early validation: reject invalid requests BEFORE expensive operations
+        // -----------------------------
+        // LAYER 1: Required parameters check
+        if (!amount || !providedSig || !cPay) {
+          return new Response("Invalid Request", { status: 400 });
+        }
+
+        // LAYER 2: Timestamp validation BEFORE expensive operations
+        const timeNum = parseInt(time);
+        const now = Date.now();
+
+        if (isNaN(timeNum) || timeNum > now || timeNum < now - TIME_PAY_LINK) {
+          const minutes = Math.floor(TIME_PAY_LINK / 60000);
+          return new Response(getErrorHTML(
+            `Link Expired.<br>This payment link is over ${minutes} minutes old.`,
+            getContactButtons(config, encodeURIComponent("About Expired Payment Link")),
+            config
+          ), { headers: { "Content-Type": "text/html" } });
+        }
+
+        // LAYER 3: Amount validation
+        const amountNum = parseFloat(amount);
+        if (isNaN(amountNum) || amountNum <= 0 || amountNum > 999999999) {
+          return new Response("Invalid Amount", { status: 400 });
+        }
+
+        // LAYER 4: Token format validation (check structure before decryption)
+        if (!cPay.match(/^v1\.[A-Za-z0-9_-]+$/)) {
+          return new Response(getErrorHTML(
+            "Security Check Failed.<br>Invalid token format.",
+            getContactButtons(config, encodeURIComponent("Security Issue - Invalid Token")),
+            config
+          ), { headers: { "Content-Type": "text/html" } });
+        }
+
+        // LAYER 5: Signature format validation (check structure before verification)
+        if (!providedSig.match(/^[a-f0-9]{64}$/i)) {
+          return new Response(getErrorHTML(
+            "Security Check Failed.<br>Invalid signature format.",
+            getContactButtons(config, encodeURIComponent("Security Issue - Invalid Signature")),
+            config
+          ), { headers: { "Content-Type": "text/html" } });
+        }
+
+        // Original expiration check (now redundant but kept as safety)
         if (Date.now() - parseInt(time) > TIME_PAY_LINK) {
           const subject = encodeURIComponent("About Expired Payment Link");
           const minutes = Math.floor(TIME_PAY_LINK / 60000);
@@ -431,8 +477,56 @@ export default {
         const paymentTimestamp = url.searchParams.get("ts") || "";
         const providedSig = url.searchParams.get("sig");
 
-        if (!paymentId) return new Response("Invalid Session - No ID");
+        // -----------------------------
+        // ✅ Early validation: reject invalid requests BEFORE expensive operations
+        // -----------------------------
+        // LAYER 1: Required parameters check
+        if (!paymentId || !oid || !time || !providedSig || !c) {
+          return new Response("Invalid Request", { status: 400 });
+        }
 
+        // LAYER 2: Timestamp validation BEFORE expensive operations
+        const timeNum = parseInt(time);
+        const now = Date.now();
+
+        if (isNaN(timeNum) || timeNum > now || timeNum < now - TIME_RECEIPT) {
+          const hours = Math.floor(TIME_RECEIPT / 3600000);
+          return new Response(getErrorHTML(
+            `Receipt Expired.<br>This receipt is older than ${hours} hours.`,
+            getContactButtons(config, encodeURIComponent("About Receipt " + paymentId)),
+            config
+          ), { headers: { "Content-Type": "text/html" } });
+        }
+
+        // LAYER 3: Payment ID format validation (permissive: alphanumerics, hyphens, underscores, min 3 chars)
+        if (!paymentId.match(/^[a-zA-Z0-9_-]{3,100}$/)) {
+          return new Response("Invalid Payment ID", { status: 400 });
+        }
+
+        // LAYER 4: Order ID format validation
+        if (!oid.match(/^POS-[A-Za-z0-9]{8}$/)) {
+          return new Response("Invalid Order ID", { status: 400 });
+        }
+
+        // LAYER 5: Token format validation
+        if (!c.match(/^v1\.[A-Za-z0-9_-]+$/)) {
+          return new Response(getErrorHTML(
+            "Security Check Failed.<br>Invalid token format.",
+            getContactButtons(config, encodeURIComponent("Security Issue - Invalid Token")),
+            config
+          ), { headers: { "Content-Type": "text/html" } });
+        }
+
+        // LAYER 6: Signature format validation
+        if (!providedSig.match(/^[a-f0-9]{64}$/i)) {
+          return new Response(getErrorHTML(
+            "Security Check Failed.<br>Invalid signature format.",
+            getContactButtons(config, encodeURIComponent("Security Issue - Invalid Signature")),
+            config
+          ), { headers: { "Content-Type": "text/html" } });
+        }
+
+        // Original expiration check (now redundant but kept as safety)
         if (Date.now() - parseInt(time) > TIME_RECEIPT) {
           const subject = encodeURIComponent("About Receipt " + paymentId);
           const hours = Math.floor(TIME_RECEIPT / 3600000);
