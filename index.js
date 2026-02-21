@@ -14,12 +14,37 @@ const SINDIPAY_API_KEY_OVERRIDE = ""; // optional test key (leave empty in publi
 //   `${customTitle} - ${MERCHANT}`
 const PAYMENT_TITLE_OVERRIDE = "Payment";
 
+// ------------------------------------------------------------
+// ✅ SERVICE FEE (percentage added to payment amount)
+// ------------------------------------------------------------
+// Set to 1.5 for 1.5% service fee, 0 for no fee, or leave empty to use env variable
+const SERVICE_FEE_PERCENTAGE = 1.5;
+
 // ✅ RTL helper for Discord embed (keeps Arabic text from looking broken when mixed with English)
 const applyRtlWrap = (s) => {
   const str = String(s || "");
   if (!str) return str;
   const RTL_RE = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/;
   return RTL_RE.test(str) ? ("\u202B" + str + "\u202C") : str;
+};
+
+// ------------------------------------------------------------
+// ✅ Calculate amount with service fee
+// ------------------------------------------------------------
+// Returns object with: { baseAmount, feeAmount, totalAmount }
+// If fee percent is 0 or not set, returns baseAmount for all values
+const calculateAmountWithFee = (amount, feePercent) => {
+  const base = parseFloat(amount) || 0;
+  const feePercentNum = parseFloat(feePercent) || 0;
+
+  if (feePercentNum <= 0) {
+    return { baseAmount: base, feeAmount: 0, totalAmount: base };
+  }
+
+  const fee = base * (feePercentNum / 100);
+  const total = base + fee;
+
+  return { baseAmount: base, feeAmount: fee, totalAmount: total };
 };
 
 const buildPaymentTitle = (merchantName, titleOverride) => {
@@ -31,6 +56,16 @@ const buildPaymentTitle = (merchantName, titleOverride) => {
 function buildMerchantConfig(env) {
   const name = (env.MERCHANT_NAME || "POS").toString();
   const favicon = (env.MERCHANT_FAVICON || "").toString().trim() || defaultPlaceholderFavicon(name);
+
+  // Service fee: use env variable if set, otherwise use SERVICE_FEE_PERCENTAGE constant
+  let serviceFeePercent = parseFloat(SERVICE_FEE_PERCENTAGE);
+  if (env.SERVICE_FEE_PERCENTAGE !== undefined && env.SERVICE_FEE_PERCENTAGE !== "") {
+    serviceFeePercent = parseFloat(env.SERVICE_FEE_PERCENTAGE);
+  }
+  // Ensure it's a valid number, default to 0 if invalid
+  if (isNaN(serviceFeePercent)) {
+    serviceFeePercent = 0;
+  }
 
   return {
     name,
@@ -44,6 +79,7 @@ function buildMerchantConfig(env) {
     apiKey: (env.API_KEY || "").toString(),
     discordWebhookUrl: env.DISCORD_WEBHOOK_URL || "",
     tz: "Asia/Baghdad",
+    serviceFeePercent,
   };
 }
 
@@ -263,14 +299,80 @@ export default {
       return new Response("Unauthorized", { status: 401 });
     }
 
-    const publicPaths = ["/pay", "/success", "/webhook", "/login"];
+    const publicPaths = ["/pay", "/success", "/webhook", "/login", "/check", "/check-status"];
     if (!isLoggedIn && !publicPaths.includes(url.pathname)) {
       return new Response(getLoginHTML(config), { headers: { "Content-Type": "text/html; charset=UTF-8" } });
     }
 
     try {
       if (request.method === "GET" && url.pathname === "/") {
+        return new Response(getMenuHTML(config), { headers: { "Content-Type": "text/html; charset=UTF-8" } });
+      }
+
+      if (request.method === "GET" && url.pathname === "/create") {
         return new Response(getTerminalHTML(config), { headers: { "Content-Type": "text/html; charset=UTF-8" } });
+      }
+
+      if (request.method === "GET" && url.pathname === "/check") {
+        return new Response(getCheckHTML(config), { headers: { "Content-Type": "text/html; charset=UTF-8" } });
+      }
+
+      if (request.method === "POST" && url.pathname === "/check-status") {
+        const formData = await request.formData();
+        const inputId = (formData.get("id") || "").trim();
+
+        if (!inputId) {
+          return new Response(getCheckHTML(config, "Please enter a Payment ID"), {
+            headers: { "Content-Type": "text/html; charset=UTF-8" }
+          });
+        }
+
+        // Validate that input is a number (Payment ID is integer)
+        if (!/^\d+$/.test(inputId)) {
+          return new Response(getCheckHTML(config, `Invalid ID format. Please enter the Payment ID (numbers only).<br>You can find it on your receipt.`), {
+            headers: { "Content-Type": "text/html; charset=UTF-8" }
+          });
+        }
+
+        // Query SindiPay API with Payment ID (integer)
+        try {
+          const checkResponse = await fetch(`${config.sindipayBase}/api/v1/payments/gateway/${inputId}/`, {
+            method: "GET",
+            headers: {
+              "X-API-Key": config.apiKey,
+              "User-Agent": `${config.name}-POS/1.1.1`,
+              "Accept": "application/json"
+            }
+          });
+
+          if (!checkResponse.ok) {
+            return new Response(getCheckHTML(config, `Payment not found. Please check the Payment ID and try again.`), {
+              headers: { "Content-Type": "text/html; charset=UTF-8" }
+            });
+          }
+
+          const paymentData = await checkResponse.json();
+
+          const resultData = {
+            order_id: paymentData.order_id || "",
+            payment_id: paymentData.id || inputId,
+            amount: paymentData.total_amount || "0",
+            status: paymentData.status || "UNKNOWN",
+            customer_name: paymentData.customer_name || "",
+            customer_email: paymentData.customer_email || "",
+            title: paymentData.title || "",
+            created_at: paymentData.created_at || ""
+          };
+
+          return new Response(getCheckResultHTML(resultData, config), {
+            headers: { "Content-Type": "text/html; charset=UTF-8" }
+          });
+
+        } catch (e) {
+          return new Response(getCheckHTML(config, `Error checking payment: ${e.message}`), {
+            headers: { "Content-Type": "text/html; charset=UTF-8" }
+          });
+        }
       }
 
       // ------------------------------------------------------------
@@ -278,21 +380,24 @@ export default {
       // ------------------------------------------------------------
       if (request.method === "POST" && url.pathname === "/generate") {
         const formData = await request.formData();
-        const amount = formData.get("amount");
+        const baseAmount = formData.get("amount");
         const titleOverride = formData.get("title") || ""; // ✅ NEW
         const name = formData.get("name") || "";
         const email = formData.get("email") || "";
         const timestamp = Date.now().toString();
 
-        // Put PII + optional title in c=
-        const cPay = await encryptPII({ name, email, title: titleOverride });
+        // ✅ Calculate amount with service fee
+        const { baseAmount: amountBase, feeAmount, totalAmount } = calculateAmountWithFee(baseAmount, config.serviceFeePercent);
 
-        // Sign without exposing name/email/title
-        const dataToSign = `amount=${amount}&time=${timestamp}&c=${cPay}`;
+        // Put PII + optional title + base amount + fee info in c=
+        const cPay = await encryptPII({ name, email, title: titleOverride, baseAmount: amountBase.toString(), feeAmount: feeAmount.toString() });
+
+        // Sign using total amount
+        const dataToSign = `amount=${totalAmount}&time=${timestamp}&c=${cPay}`;
         const signature = await generateSignature(dataToSign, "PAY");
 
         const subLink =
-          `${url.origin}/pay?amt=${amount}` +
+          `${url.origin}/pay?amt=${totalAmount}` +
           `&time=${timestamp}` +
           `&c=${encodeURIComponent(cPay)}` +
           `&sig=${signature}`;
@@ -302,7 +407,7 @@ export default {
         // Share title (default/override + merchant)
         const shareTitle = buildPaymentTitle(config.name, titleOverride);
 
-        return new Response(getSharePageHTML(amount, qrCodeUrl, subLink, config, shareTitle), {
+        return new Response(getSharePageHTML(amountBase, feeAmount, totalAmount, qrCodeUrl, subLink, config, shareTitle), {
           headers: { "Content-Type": "text/html; charset=UTF-8" }
         });
       }
@@ -382,12 +487,16 @@ export default {
         let name = "";
         let email = "";
         let titleOverride = "";
+        let baseAmountStr = amount.toString();
+        let feeAmountStr = "0";
         try {
           if (cPay) {
             const pii = await decryptPII(cPay);
             name = pii?.name || "";
             email = pii?.email || "";
             titleOverride = pii?.title || "";
+            baseAmountStr = pii?.baseAmount || amount.toString();
+            feeAmountStr = pii?.feeAmount || "0";
           }
         } catch (e) {
           const subject = encodeURIComponent("Security Issue - Invalid Token");
@@ -608,9 +717,10 @@ export default {
         const amount = paymentData.total_amount || "0";
         const orderId = paymentData.order_id || oid || paymentId;
         const createdAt = paymentData.created_at || paymentTimestamp;
+        const finalPaymentId = paymentData.id || paymentId;
 
         return new Response(
-          getConfirmationHTML(orderId, amount, status, userName, userEmail, createdAt, config, userTitleOverride),
+          getConfirmationHTML(orderId, amount, status, userName, userEmail, createdAt, config, userTitleOverride, finalPaymentId),
           { headers: { "Content-Type": "text/html; charset=UTF-8" } }
         );
       }
@@ -800,17 +910,112 @@ function getLoginHTML(config) {
 }
 
 function getTerminalHTML(config) {
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">${getHeadMeta(config)}<style>${STYLES}</style></head><body><div class="container"><div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">${escapeHtml(config.name)} POS Terminal</div><form action="/generate" method="POST" style="width:100%"><input type="number" name="amount" class="amount" placeholder="0" required autofocus inputmode="decimal"><input type="text" name="title" placeholder="Payment Title (Optional)"><input type="text" name="name" placeholder="Client Name (Optional)"><input type="email" name="email" placeholder="Client Email (Optional)"><button type="submit">Create Request</button></form></div></body></html>`;
+  const feeHint = config.serviceFeePercent > 0
+    ? `<div style="color:var(--sub); font-size:11px; margin-bottom:15px;">+${escapeHtml(config.serviceFeePercent.toString())}% service fee will be added</div>`
+    : '';
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">${getHeadMeta(config)}<style>${STYLES}</style></head><body><div class="container"><div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">${escapeHtml(config.name)} POS Terminal</div>${feeHint}<form action="/generate" method="POST" style="width:100%"><input type="number" name="amount" class="amount" placeholder="0" required autofocus inputmode="decimal"><input type="text" name="title" placeholder="Payment Title (Optional)"><input type="text" name="name" placeholder="Client Name (Optional)"><input type="email" name="email" placeholder="Client Email (Optional)"><button type="submit">Create Request</button></form><a href="/" style="color:var(--sub); text-decoration:none; font-size:11px; margin-top:30px; text-transform:uppercase;">Back to Menu</a></div></body></html>`;
 }
 
-function getSharePageHTML(amount, qrUrl, subLink, config, paymentTitle) {
+function getSharePageHTML(baseAmount, feeAmount, totalAmount, qrUrl, subLink, config, paymentTitle) {
   const safeTitle = (paymentTitle || "Payment").toString().replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   const safeLink = (subLink || "").toString().replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-  const safeAmount = escapeHtml(amount);
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES} .qr-box{background:#fff; padding:15px; border-radius:20px; margin-bottom:40px;} img{display:block; width:220px; height:220px;}</style></head><body><div class="container"><div style="font-size:48px; font-weight:200; margin-bottom:40px;">${safeAmount}</div><div class="qr-box"><img src="${qrUrl}"></div><button onclick="doShare()">Share Link</button><button style="background:transparent; color:#fff; border:1px solid var(--border); margin-top:10px;" onclick="doCopy()">Copy Link</button><a href="/" style="color:var(--sub); text-decoration:none; font-size:11px; margin-top:30px; text-transform:uppercase;">Cancel</a></div><script> function showAlert(msg) { const alert = document.createElement('div'); alert.className = 'alert'; alert.textContent = msg; document.body.appendChild(alert); setTimeout(() => alert.remove(), 2500); } function doShare(){ if(navigator.share){navigator.share({title:'${safeTitle}', url:'${safeLink}'});}else{doCopy();} } function doCopy(){ navigator.clipboard.writeText('${safeLink}'); showAlert('Link Copied!'); } </script></body></html>`;
+  const safeBaseAmount = escapeHtml(baseAmount);
+  const safeFeeAmount = escapeHtml(feeAmount);
+  const safeTotalAmount = escapeHtml(totalAmount);
+
+  // Build fee breakdown HTML if fee is greater than 0
+  const feeBreakdown = parseFloat(feeAmount) > 0
+    ? `<div style="color:var(--sub); font-size:14px; margin-bottom:10px;">
+         Base: ${safeBaseAmount} IQD + Fee: ${safeFeeAmount} IQD
+       </div>`
+    : '';
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES} .qr-box{background:#fff; padding:15px; border-radius:20px; margin-bottom:40px;} img{display:block; width:220px; height:220px;}</style></head><body><div class="container">${feeBreakdown}<div style="font-size:48px; font-weight:200; margin-bottom:40px;">${safeTotalAmount}</div><div class="qr-box"><img src="${qrUrl}"></div><button onclick="doShare()">Share Link</button><button style="background:transparent; color:#fff; border:1px solid var(--border); margin-top:10px;" onclick="doCopy()">Copy Link</button><a href="/" style="color:var(--sub); text-decoration:none; font-size:11px; margin-top:30px; text-transform:uppercase;">Cancel</a></div><script> function showAlert(msg) { const alert = document.createElement('div'); alert.className = 'alert'; alert.textContent = msg; document.body.appendChild(alert); setTimeout(() => alert.remove(), 2500); } function doShare(){ if(navigator.share){navigator.share({title:'${safeTitle}', url:'${safeLink}'});}else{doCopy();} } function doCopy(){ navigator.clipboard.writeText('${safeLink}'); showAlert('Link Copied!'); } </script></body></html>`;
 }
 
-function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, config, userTitleOverride) {
+function getMenuHTML(config) {
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">${getHeadMeta(config)}<style>${STYLES} .menu-buttons{display:flex;gap:15px;width:100%;} .menu-buttons button{flex:1;}</style></head>
+<body>
+<div class="container">
+  <div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:40px;text-transform:uppercase;">${escapeHtml(config.name)} Terminal</div>
+  <div class="menu-buttons">
+    <button type="button" onclick="location.href='/create'">Create</button>
+    <button type="button" onclick="location.href='/check'" style="background:transparent;color:#fff;border:1px solid var(--border);">Check</button>
+  </div>
+</div>
+</body></html>`;
+}
+
+function getCheckHTML(config, error = null) {
+  const errorMsg = error ? `<div style="color:#ff4444;font-size:12px;margin-bottom:20px;">${escapeHtml(error)}</div>` : '';
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">${getHeadMeta(config)}<style>${STYLES}</style></head>
+<body>
+<div class="container">
+  <div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">Check Payment</div>
+  ${errorMsg}
+  <form action="/check-status" method="POST" style="width:100%">
+    <input type="number" name="id" placeholder="Payment ID" required autofocus inputmode="numeric">
+    <button type="submit">Check Status</button>
+  </form>
+  <div style="color:var(--sub);font-size:11px;margin-top:20px;">Enter the Payment ID from your receipt</div>
+  <a href="/" style="color:var(--sub); text-decoration:none; font-size:11px; margin-top:30px; text-transform:uppercase;">Back to Menu</a>
+</div>
+</body></html>`;
+}
+
+function getCheckResultHTML(data, config) {
+  const isPaid = String(data.status || "").toUpperCase() === "PAID";
+  const icon = isPaid ? "✓" : "✕";
+  const color = isPaid ? "#4CAF50" : "#ff4444";
+
+  const titleRow = data.title ? `<div class="row"><span>Title</span><span class="val">${escapeHtml(data.title)}</span></div>` : "";
+  const nameRow = data.customer_name ? `<div class="row"><span>Customer</span><span class="val">${escapeHtml(data.customer_name)}</span></div>` : "";
+  const emailRow = data.customer_email ? `<div class="row"><span>Email</span><span class="val" style="font-size:12px;word-break:break-all;">${escapeHtml(data.customer_email)}</span></div>` : "";
+
+  let dateStr = "";
+  if (data.created_at) {
+    const tsNum = parseInt(data.created_at);
+    const date = new Date(tsNum * 1000);
+    if (!isNaN(date.getTime())) {
+      dateStr = date.toLocaleString("en-US", {
+        year: "numeric", month: "short", day: "numeric",
+        hour: "2-digit", minute: "2-digit",
+        hour12: true, timeZone: config.tz
+      });
+    }
+  }
+
+  const dateRow = dateStr
+    ? `<div class="row"><span>Date</span><span class="val" style="font-size:12px;">${escapeHtml(dateStr)}</span></div>`
+    : "";
+
+  const orderIdRow = data.order_id ? `<div class="row"><span>Order ID</span><span class="val" style="font-size:11px;word-break:break-all;">${escapeHtml(data.order_id)}</span></div>` : "";
+  const paymentIdRow = data.payment_id ? `<div class="row"><span>Payment ID</span><span class="val" style="font-size:12px;word-break:break-all;">${escapeHtml(data.payment_id)}</span></div>` : "";
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES}.check-result{max-width:420px;margin:0 auto;}.check-result .row span:first-child{min-width:80px;}.check-result .val{max-width:280px;}</style></head>
+<body>
+<div class="container check-result">
+  <div style="font-size:48px;margin-bottom:10px;color:${color}">${icon}</div>
+  <div style="font-size:32px;margin-bottom:30px;font-weight:200;">${escapeHtml(data.amount || "0")} IQD</div>
+  ${titleRow}
+  ${nameRow}
+  ${emailRow}
+  ${orderIdRow}
+  ${paymentIdRow}
+  ${dateRow}
+  <div class="row"><span>Status</span><span class="val" style="color:${color}">${escapeHtml(String(data.status || "").toUpperCase())}</span></div>
+  <div style="margin-top:40px;"></div>
+  <button onclick="location.href='/check'">Check Another</button>
+  <button style="background:transparent;color:#fff;border:1px solid var(--border);" onclick="location.href='/'">Back to Menu</button>
+</div>
+</body></html>`;
+}
+
+function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, config, userTitleOverride, paymentId = "") {
   const isPaid = String(status).toUpperCase() === "PAID";
   const icon = isPaid ? "✓" : "✕";
   const color = isPaid ? "#4CAF50" : "#ff4444";
@@ -827,6 +1032,7 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, co
 
   const nameRow = userName ? `<div class="row"><span>Customer</span><span class="val">${escapeHtml(userName)}</span></div>` : "";
   const emailRow = userEmail ? `<div class="row"><span>Email</span><span class="val" style="font-size:12px;">${escapeHtml(userEmail)}</span></div>` : "";
+  const paymentIdRow = paymentId ? `<div class="row"><span>Payment ID</span><span class="val" style="font-size:12px;">${escapeHtml(paymentId)}</span></div>` : "";
 
   let dateStr = "";
   if (timestamp) {
@@ -845,10 +1051,11 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, co
     ? `<div class="row"><span>Date & Time<br>(GMT+3)</span><span class="val" style="font-size:11px;">${escapeHtml(dateStr)}</span></div>`
     : "";
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES}</style></head><body> <canvas id="receiptCanvas" style="display:none;"></canvas> <div class="container"> <div class="receipt-card" id="receiptCard"> <div style="font-size:60px;margin-bottom:20px;color:${color}">${icon}</div> ${titleRow} ${nameRow} ${emailRow} <div class="row"><span>Amount</span><span class="val">${escapeHtml(amt)} IQD</span></div> <div class="row"><span>Order ID</span><span class="val">${escapeHtml(id)}</span></div> ${timestampRow} <div class="row"><span>Status</span><span class="val" style="color:${color}">${escapeHtml(String(status).toUpperCase())}</span></div> <div style="margin-top:30px;padding-top:20px;border-top:1px solid var(--border);color:var(--sub);font-size:12px;font-weight:600;">Merchant ${escapeHtml(merchantName)}</div> </div> ${merchantEmail ? `<button onclick="sendEmail()">Email Receipt</button>` : ""} <button style="background:transparent; color:#fff; border:1px solid var(--border);" onclick="shareGeneral()">Share Receipt</button> </div> <script>
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES}</style></head><body> <canvas id="receiptCanvas" style="display:none;"></canvas> <div class="container"> <div class="receipt-card" id="receiptCard"> <div style="font-size:60px;margin-bottom:20px;color:${color}">${icon}</div> ${titleRow} ${nameRow} ${emailRow} <div class="row"><span>Amount</span><span class="val">${escapeHtml(amt)} IQD</span></div> <div class="row"><span>Order ID</span><span class="val">${escapeHtml(id)}</span></div> ${paymentIdRow} ${timestampRow} <div class="row"><span>Status</span><span class="val" style="color:${color}">${escapeHtml(String(status).toUpperCase())}</span></div> <div style="margin-top:30px;padding-top:20px;border-top:1px solid var(--border);color:var(--sub);font-size:12px;font-weight:600;">Merchant ${escapeHtml(merchantName)}</div> </div> ${merchantEmail ? `<button onclick="sendEmail()">Email Receipt</button>` : ""} <button style="background:transparent; color:#fff; border:1px solid var(--border);" onclick="shareGeneral()">Share Receipt</button> </div> <script>
   const receiptData = {
     title: ${JSON.stringify(String(receiptTitle || ""))},
     id: ${JSON.stringify(String(id || ""))},
+    paymentId: ${JSON.stringify(String(paymentId || ""))},
     amt: ${JSON.stringify(String(amt || ""))},
     status: ${JSON.stringify(String(status || "").toUpperCase())},
     name: ${JSON.stringify(String(userName || ""))},
@@ -982,6 +1189,7 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, co
       drawRow('Email', receiptData.email);
       drawRow('Amount', receiptData.amt + ' IQD');
       drawRow('Order ID', receiptData.id);
+      drawRow('Payment ID', receiptData.paymentId);
 
       if(receiptData.timestamp) {
         ctx.direction = 'ltr';
@@ -1033,6 +1241,7 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, co
     if(receiptData.name) bodyText += '\\nName: ' + receiptData.name;
     if(receiptData.email) bodyText += '\\nEmail: ' + receiptData.email;
     bodyText += '\\nAmount: ' + receiptData.amt + ' IQD\\nOrder ID: ' + receiptData.id;
+    if(receiptData.paymentId) bodyText += '\\nPayment ID: ' + receiptData.paymentId;
     if(receiptData.timestamp) bodyText += '\\nDate & Time: ' + receiptData.timestamp + ' (GMT+3)';
     bodyText += '\\nStatus: ' + receiptData.status;
 
@@ -1054,6 +1263,7 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, co
           (receiptData.email ? 'Email: ' + receiptData.email + '\\n' : '') +
           'Amount: ' + receiptData.amt + ' IQD\\n' +
           'Order ID: ' + receiptData.id +
+          (receiptData.paymentId ? '\\nPayment ID: ' + receiptData.paymentId : '') +
           (receiptData.timestamp ? '\\nDate & Time: ' + receiptData.timestamp + ' (GMT+3)' : '') +
           '\\nStatus: ' + receiptData.status;
 

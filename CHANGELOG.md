@@ -6,6 +6,67 @@ This file is a **quick index** of what changed between versions. For full detail
 
 ---
 
+## v1.1.7 (21.02.2026)
+
+### ✨ New Features
+
+* **Payment Status Check**: Added new payment check screen to verify payment status by Payment ID:
+  * Navigate to `/check` to access the check payment form
+  * Enter Payment ID (numeric) to retrieve payment details from SindiPay
+  * View payment status, amount, order ID, customer info, and timestamp
+  * Check multiple payments with "Check Another" button
+* **Service Fee Support**: Added configurable service fee percentage that can be added to payment amounts:
+  * Set `SERVICE_FEE_PERCENTAGE` constant in code or via `SERVICE_FEE_PERCENTAGE` environment variable
+  * Service fee is calculated as a percentage of the base amount
+  * Total amount sent to gateway = base amount + service fee
+  * Share page displays fee breakdown when fee > 0
+  * Terminal shows fee hint before creating payment link
+* **Payment ID on Receipt**: Added Payment ID to receipt page and PNG receipt image:
+  * Payment ID now displayed on receipt HTML page
+  * Payment ID included in canvas-generated PNG receipt
+  * Payment ID added to email receipt body
+  * Payment ID added to share text fallback
+  * Users can easily copy Payment ID to check payment status
+
+### 🔄 Route Changes
+
+* **Menu System**: Root `/` now shows a menu with "Create" and "Check" buttons
+  * `/create` → POS Terminal for creating payment links
+  * `/check` → Payment status check form
+* **New Routes**:
+  * `GET /check` - Payment check form
+  * `POST /check-status` - Query SindiPay API and display payment status
+
+### ⚙️ Configuration
+
+* **New Environment Variable**:
+  * `SERVICE_FEE_PERCENTAGE` - Service fee percentage (e.g., `1.5` for 1.5% fee). Leave empty or set to `0` for no fee
+* **Updated Functions**:
+  * `calculateAmountWithFee()` - Calculate base amount, fee amount, and total amount
+  * `buildMerchantConfig()` - Now includes `serviceFeePercent` in config object
+
+### 📝 UI Changes
+
+* **Menu Page**: New menu at root `/` with Create/Check buttons
+* **Check Payment Page**: Form to enter Payment ID and view status
+* **Check Result Page**: Displays payment details with status icon
+* **Terminal Page**: Added service fee hint when fee is configured
+* **Share Page**: Shows fee breakdown (Base + Fee) when service fee is active
+
+### 🔧 Technical Details
+
+* No breaking changes - all existing functionality preserved
+* Service fee is optional - defaults to 0 if not configured
+* Payment check uses existing SindiPay API integration
+* Order ID remains 8 characters (`POS-xxxxxxxx`)
+
+### 📝 Documentation Updates
+
+* **README.md**: Updated with service fee and payment check documentation
+* **CHANGELOG.md**: Added v1.1.7 entry
+
+---
+
 ## v1.1.6 (08.01.2026)
 
 ### 🛡️ Security & Performance

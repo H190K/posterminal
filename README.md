@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-v1.1.6-blue?style=for-the-badge)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v1.1.7-blue?style=for-the-badge)](CHANGELOG.md)
 <a href="https://developers.cloudflare.com/workers/"><img src="https://img.shields.io/badge/Cloudflare-Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" /></a> <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript"><img src="https://img.shields.io/badge/JavaScript-ES2023-yellow?style=for-the-badge&logo=javascript&logoColor=white" /></a> <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-Runtime-339933?style=for-the-badge&logo=node.js&logoColor=Yellow" /></a> <a href="https://sindipay.com/en/"><img src="https://img.shields.io/badge/Payments-SindiPay-0052cc?style=for-the-badge&logo=creditcard&logoColor=white" /></a> <a href="https://discord.com/"><img src="https://img.shields.io/badge/Notifications-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" /></a>
 
 </div>
@@ -32,18 +32,22 @@ We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment
    2. [💳 Payments](#-payment-processing)
    3. [📱 UX/UI](#-user-experience)
    4. [🔔 Notifications](#-notifications)
+   5. [✅ Payment Check](#-payment-status-check)
 3. [⚙️ Configuration](#-configuration)
    1. [Environment Variables](#-environment-variables)
-   2. [Favicon Setup](#-favicon-implementation-note)
-   3. [Customization](#-customization)
-   4. [Timeout Configuration](#timeout-configuration)
-   5. [Timezone](#timezone-configuration)
+   2. [Service Fee Configuration](#-service-fee-configuration)
+   3. [Favicon Setup](#-favicon-implementation-note)
+   4. [Customization](#-customization)
+   5. [Timeout Configuration](#timeout-configuration)
+   6. [Timezone](#timezone-configuration)
 4. [📖 Usage Guide](#-usage-guide)
    1. [1. Dashboard Login](#1-dashboard-login)
-   2. [2. Creating Payment Links](#2-creating-payment-links)
-   3. [3. Customer Payment Flow](#3-customer-payment-flow)
-   4. [4. Receipt Access](#4-receipt-access)
-   5. [5. Developer Overrides (Optional)](#5-developer-overrides-optional)
+   2. [2. Menu Navigation](#2-menu-navigation)
+   3. [3. Creating Payment Links](#3-creating-payment-links)
+   4. [4. Checking Payment Status](#4-checking-payment-status)
+   5. [5. Customer Payment Flow](#5-customer-payment-flow)
+   6. [6. Receipt Access](#6-receipt-access)
+   7. [7. Developer Overrides (Optional)](#7-developer-overrides-optional)
 5. [🏗 Architecture & Security Logic](#-architecture--security-logic)
    1. [HMAC Signatures](#digital-signatures-hmac)
    2. [Split Secrets](#split-secret-architecture)
@@ -141,6 +145,7 @@ npx wrangler deploy
   * **Brand Alignment**: Centered titles, centered merchant name, and "Thank you for your purchase" footer.
   * **RTL Wrapping**: Long titles wrap correctly while maintaining right-to-left flow.
   * **Easy Sharing**: Native mobile sharing integration for PNG receipts and text.
+  * **Payment ID Display**: Payment ID shown on receipt page and PNG image for easy status checking.
 * **Error Recovery** - Branding-consistent error pages with PWA icons and merchant contact options.
 
 ### 🔔 Notifications
@@ -150,6 +155,14 @@ npx wrangler deploy
 * **Arabic-Safe Notifications**: Automatically detects and wraps Arabic text with RTL control characters to ensure correct display on Discord.
 * **Robust Timestamp Handling** - Supports multiple timestamp formats (Unix, ISO 8601, milliseconds) with automatic conversion to GMT+3.
 * **Mention Protection** - Prevents @everyone/@here mentions in Discord channels.
+
+### ✅ Payment Status Check
+
+* **Check by Payment ID** - Look up any payment status using the Payment ID from receipts
+* **Real-time Status** - Queries SindiPay API directly for current payment status
+* **Complete Details** - Shows amount, status, order ID, customer info, and timestamp
+* **Quick Verification** - No login required to check payment status
+* **Multiple Checks** - "Check Another" button for rapid verification
 
 ---
 
@@ -178,6 +191,7 @@ Configure these in Cloudflare Workers as **Secrets** or in `wrangler.toml`:
 | `MERCHANT_WHATSAPP` | WhatsApp number (with country code, no +) | ⚠️ Recommended | `1234567890` |
 | `MERCHANT_FAVICON` | URL to your favicon (192x192px or larger) | ⚪ Optional | `https://example.com/favicon.png` |
 | `DISCORD_WEBHOOK_URL` | Discord webhook URL for notifications | ⚪ Optional | `https://discord.com/api/webhooks/...` |
+| `SERVICE_FEE_PERCENTAGE` | Service fee percentage added to payments | ⚪ Optional | `1.5` |
 
 ### Setting up Environment Variables
 
@@ -207,6 +221,58 @@ MERCHANT_NAME = "My Shop"
 MERCHANT_EMAIL = "support@myshop.com"
 MERCHANT_WHATSAPP = "1234567890"
 MERCHANT_FAVICON = "https://example.com/favicon.png"
+SERVICE_FEE_PERCENTAGE = "1.5"  # 1.5% service fee, set to "0" for no fee
+```
+
+---
+
+### 💰 Service Fee Configuration
+
+**Overview**: The terminal supports adding a service fee percentage to payment amounts. This fee is automatically calculated and added to the base amount before sending to the payment gateway.
+
+**Configuration Options**:
+
+1. **Via Code** (in `index.js`):
+```javascript
+const SERVICE_FEE_PERCENTAGE = 1.5;  // 1.5% service fee
+```
+
+2. **Via Environment Variable**:
+```bash
+npx wrangler secret put SERVICE_FEE_PERCENTAGE
+# Enter: 1.5 (for 1.5% fee)
+```
+
+3. **Via wrangler.toml**:
+```toml
+[vars]
+SERVICE_FEE_PERCENTAGE = "1.5"  # 1.5% service fee
+```
+
+**How It Works**:
+- Customer enters base amount (e.g., 10000 IQD)
+- System calculates fee: `10000 * 1.5% = 150 IQD`
+- Total sent to gateway: `10000 + 150 = 10150 IQD`
+- Share page shows: "Base: 10000 IQD + Fee: 150 IQD" → "10150 IQD"
+- Terminal shows hint: "+1.5% service fee will be added"
+
+**Disable Service Fee**:
+- Set to `0` or leave empty to disable service fees
+- All amounts will be processed without additional fees
+
+**Code Implementation**:
+```javascript
+// From index.js - Service fee calculation
+const calculateAmountWithFee = (amount, feePercent) => {
+  const base = parseFloat(amount) || 0;
+  const feePercentNum = parseFloat(feePercent) || 0;
+  if (feePercentNum <= 0) {
+    return { baseAmount: base, feeAmount: 0, totalAmount: base };
+  }
+  const fee = base * (feePercentNum / 100);
+  const total = base + fee;
+  return { baseAmount: base, feeAmount: fee, totalAmount: total };
+};
 ```
 
 ---
@@ -342,17 +408,39 @@ The architecture supports multiple gateways. To add another:
 
 1. Navigate to your Worker URL
 2. Enter your terminal password
-3. You'll be redirected to the POS dashboard (session lasts 2 minutes)
+3. You'll be redirected to the main menu (session lasts 2 minutes)
 
-### 2. Creating Payment Links
+### 2. Menu Navigation
 
-1. Enter payment amount (IQD)
-2. Enter optional payment title
-3. Enter customer name and email (optional)
-4. Click "Create Payment Link"
-5. Share the QR code with your customer
+The main menu provides two options:
+- **Create**: Navigate to the POS terminal to create payment links
+- **Check**: Look up payment status by Payment ID
 
-### 3. Customer Payment Flow
+### 3. Creating Payment Links
+
+1. Click "Create" from the main menu
+2. Enter payment amount (IQD)
+3. (Optional) Enter payment title
+4. (Optional) Enter customer name and email
+5. Click "Create Request"
+6. Share the QR code or link with your customer
+
+**Note**: If service fee is configured, a hint will show the fee percentage (e.g., "+1.5% service fee will be added")
+
+### 4. Checking Payment Status
+
+1. Click "Check" from the main menu
+2. Enter the Payment ID (numeric only, found on receipts)
+3. Click "Check Status"
+4. View payment details including:
+   - Payment status (PAID/FAILED/PENDING)
+   - Amount
+   - Order ID
+   - Customer name and email
+   - Date & time
+5. Use "Check Another" to verify additional payments
+
+### 5. Customer Payment Flow
 
 1. Customer scans QR code or opens link
 2. Customer is redirected to SindiPay payment page
@@ -360,7 +448,7 @@ The architecture supports multiple gateways. To add another:
 4. Merchant receives Discord notification (if configured)
 5. Customer is redirected back to the POS success page to view/share their digital receipt
 
-### 4. Receipt Access
+### 6. Receipt Access
 
 Customers can access receipts using the encrypted URL format:
 ```
@@ -374,7 +462,7 @@ https://your-worker.your-subdomain.workers.dev/success
 
 ---
 
-### 5. Developer Overrides (Optional)
+### 7. Developer Overrides (Optional)
 
 These variables can be used for local testing or to override production settings without changing secrets:
 
@@ -556,14 +644,17 @@ curl -X POST https://your-worker.your-subdomain.workers.dev/webhook \
 
 ## 🛣 API Routes
 
-| Route | Method | Description |
-|-------|--------|-------------|
-| `/` | GET | POS Terminal dashboard (requires authentication) |
-| `/login` | POST | Authentication endpoint |
-| `/generate` | POST | Create payment link (requires authentication) |
-| `/pay` | GET | Intermediate payment gateway redirector |
-| `/success` | GET | Payment success/receipt page |
-| `/webhook` | POST | SindiPay webhook notification handler |
+| Route | Method | Description | Auth Required |
+|-------|--------|-------------|---------------|
+| `/` | GET | Main menu with Create/Check options | ✅ Yes |
+| `/login` | POST | Authentication endpoint | ❌ No |
+| `/create` | GET | POS Terminal for creating payment links | ✅ Yes |
+| `/check` | GET | Payment status check form | ❌ No |
+| `/check-status` | POST | Query payment status by Payment ID | ❌ No |
+| `/generate` | POST | Create payment link | ✅ Yes |
+| `/pay` | GET | Intermediate payment gateway redirector | ❌ No |
+| `/success` | GET | Payment success/receipt page | ❌ No |
+| `/webhook` | POST | SindiPay webhook notification handler | ❌ No |
 
 ---
 
@@ -615,6 +706,7 @@ All environment variables and their purposes:
 | `MERCHANT_WHATSAPP` | Config | ⚠️ | WhatsApp number |
 | `MERCHANT_FAVICON` | Config | ⚪ | Favicon URL |
 | `DISCORD_WEBHOOK_URL` | Secret | ⚪ | Discord notifications |
+| `SERVICE_FEE_PERCENTAGE` | Config | ⚪ | Service fee percentage (e.g., 1.5 for 1.5%) |
 
 ---
 
@@ -696,7 +788,7 @@ For any updates, changes, and version history, please see [CHANGELOG.md](CHANGEL
 
 <div align="center">
 
-Made with ❤️ by the h190k 
+Made with ❤️ by h190k 
 
 [Report Bug](https://github.com/h190k/posterminal/issues) · [Request Feature](https://github.com/h190k/posterminal/issues) · [Documentation](https://github.com/h190k/posterminal/wiki)
 
