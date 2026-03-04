@@ -6,6 +6,49 @@ This file is a **quick index** of what changed between versions. For full detail
 
 ---
 
+## v1.1.7-1 (04.03.2026)
+
+### 🛠️ Minor Bug Fixes & Auth Stability
+
+* **Centralized session TTL**:
+  * Added `SESSION_MAX_AGE_SECONDS` (default `120`) for terminal session lifetime
+  * Replaced hardcoded session expiry checks with the shared constant
+* **Session token validation hardening**:
+  * Added invalid timestamp guard (`NaN`/non-positive rejection)
+  * Added future timestamp rejection with clock-skew tolerance (`SESSION_FUTURE_SKEW_MS`)
+* **Cookie/session hardening**:
+  * Added `buildSessionCookie()` helper for consistent cookie attributes:
+    * `HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age; Expires`
+  * Added `clearSessionCookie()` helper for deterministic invalidation
+  * Improved `parseCookie()` to support quoted and URL-encoded cookie values
+* **Anti-cache headers for protected terminal HTML**:
+  * Added shared auth headers:
+    * `Cache-Control: no-store, no-cache, must-revalidate, max-age=0`
+    * `Pragma: no-cache`
+    * `Expires: 0`
+    * `Vary: Cookie`
+  * Applied to protected HTML routes (`/`, `/create`, `/check`, `/check-status`, `/generate` response)
+  * Added no-store behavior on login/logout responses
+* **Zero-trust refresh re-auth**:
+  * Added public `GET /logout` route that clears session and redirects to `/`
+  * Injected refresh-detection script on protected terminal pages to redirect reloads to `/logout`
+* **Route auth alignment**:
+  * `/check` and `/check-status` are now authenticated terminal routes (no longer public)
+
+### 📝 Documentation Updates
+
+* **README.md**:
+  * Updated auth cookie policy details and zero-trust refresh behavior
+  * Updated API route auth matrix (`/check`, `/check-status`, and new `/logout`)
+* **UPGRADE.md**:
+  * Replaced with focused migration guide from v1.1.7 to v1.1.7-1
+
+### ✅ Validation
+
+* `node --check index.js` passes
+
+---
+
 ## v1.1.7 (21.02.2026)
 
 ### ✨ New Features

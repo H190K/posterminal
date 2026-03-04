@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-v1.1.7-blue?style=for-the-badge)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v1.1.7--1-blue?style=for-the-badge)](CHANGELOG.md)
 <a href="https://developers.cloudflare.com/workers/"><img src="https://img.shields.io/badge/Cloudflare-Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" /></a> <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript"><img src="https://img.shields.io/badge/JavaScript-ES2023-yellow?style=for-the-badge&logo=javascript&logoColor=white" /></a> <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-Runtime-339933?style=for-the-badge&logo=node.js&logoColor=Yellow" /></a> <a href="https://sindipay.com/en/"><img src="https://img.shields.io/badge/Payments-SindiPay-0052cc?style=for-the-badge&logo=creditcard&logoColor=white" /></a> <a href="https://discord.com/"><img src="https://img.shields.io/badge/Notifications-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" /></a>
 
 </div>
@@ -108,7 +108,7 @@ npx wrangler deploy
 
 ### 🔐 Security
 
-* **Zero Trust Authentication** - Password-protected dashboard with secure, HttpOnly, SameSite=Strict cookies
+* **Zero Trust Authentication** - Password-protected dashboard with secure, HttpOnly, SameSite=Lax cookies, strict 2-minute session TTL, and forced re-auth on browser refresh
 * **Tamper-Proof Links** - Uses HMAC-SHA256 digital signatures to ensure payment links and receipts cannot be forged or altered
 * **Time-Sensitive Security** - Payment links and receipts expire based on configured timeouts (see [Timeout Configuration](#timeout-configuration))
 * **Context Separation** - Different signature types (PAY/RCT) prevent signature reuse across contexts
@@ -116,6 +116,7 @@ npx wrangler deploy
 * **Receipt URL Privacy** - Receipt URLs can be **sanitized** (no customer name/email in the browser URL), while still displaying them on the receipt page
 * **Split Secret Architecture** - Separate secrets for different security purposes (authentication, signing, encryption)
 * **Session Security** - Signed session tokens with short expiration and HMAC verification
+* **Auth Cache Hardening** - Protected terminal HTML responses use `no-store/no-cache` headers with `Vary: Cookie` to reduce stale auth state artifacts
 * **Webhook Verification** - Verifies payment status with SindiPay gateway before sending Discord notifications
 * **Mention Protection** - Discord webhook prevents @everyone/@here abuse with allowed_mentions
 * **Early Request Validation** - Layered validation rejects invalid/expired requests **before** expensive cryptographic operations:
@@ -161,7 +162,7 @@ npx wrangler deploy
 * **Check by Payment ID** - Look up any payment status using the Payment ID from receipts
 * **Real-time Status** - Queries SindiPay API directly for current payment status
 * **Complete Details** - Shows amount, status, order ID, customer info, and timestamp
-* **Quick Verification** - No login required to check payment status
+* **Quick Verification** - Available from the authenticated terminal menu with fast Payment ID lookup
 * **Multiple Checks** - "Check Another" button for rapid verification
 
 ---
@@ -409,6 +410,7 @@ The architecture supports multiple gateways. To add another:
 1. Navigate to your Worker URL
 2. Enter your terminal password
 3. You'll be redirected to the main menu (session lasts 2 minutes)
+4. Browser refresh on protected terminal pages triggers `/logout` and requires re-authentication
 
 ### 2. Menu Navigation
 
@@ -510,12 +512,14 @@ The system implements **signed session tokens** with HMAC-SHA256 signatures:
 // Session token format: {timestamp}|{random}.{signature}
 // Signed with: LINK_SIGNING_SECRET
 // Expiration: 2 minutes
+// Future timestamp tolerance: 60 seconds (clock skew guard)
 ```
 
 **Benefits:**
 
 * **No Password Storage**: Dashboard password is never stored in cookies or session tokens
 * **Short Expiry**: Sessions automatically expire after 2 minutes
+* **Clock Skew Guard**: Rejects session tokens with invalid/far-future timestamps
 * **Tamper Protection**: Any modification to the token invalidates it
 * **Stateless**: No server-side session storage required
 
@@ -648,9 +652,10 @@ curl -X POST https://your-worker.your-subdomain.workers.dev/webhook \
 |-------|--------|-------------|---------------|
 | `/` | GET | Main menu with Create/Check options | ✅ Yes |
 | `/login` | POST | Authentication endpoint | ❌ No |
+| `/logout` | GET | Clears session cookie and redirects to login/menu | ❌ No |
 | `/create` | GET | POS Terminal for creating payment links | ✅ Yes |
-| `/check` | GET | Payment status check form | ❌ No |
-| `/check-status` | POST | Query payment status by Payment ID | ❌ No |
+| `/check` | GET | Payment status check form | ✅ Yes |
+| `/check-status` | POST | Query payment status by Payment ID | ✅ Yes |
 | `/generate` | POST | Create payment link | ✅ Yes |
 | `/pay` | GET | Intermediate payment gateway redirector | ❌ No |
 | `/success` | GET | Payment success/receipt page | ❌ No |

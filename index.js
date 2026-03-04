@@ -19,6 +19,8 @@ const PAYMENT_TITLE_OVERRIDE = "Payment";
 // ------------------------------------------------------------
 // Set to 1.5 for 1.5% service fee, 0 for no fee, or leave empty to use env variable
 const SERVICE_FEE_PERCENTAGE = 1.5;
+const SESSION_MAX_AGE_SECONDS = 120;
+const SESSION_FUTURE_SKEW_MS = 60 * 1000;
 
 // ✅ RTL helper for Discord embed (keeps Arabic text from looking broken when mixed with English)
 const applyRtlWrap = (s) => {
@@ -166,13 +168,45 @@ export default {
       return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, "0")).join("");
     };
 
+    const authNoStoreHeaders = {
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+      "Pragma": "no-cache",
+      "Expires": "0",
+      "Vary": "Cookie"
+    };
+
+    const authHtmlHeaders = {
+      "Content-Type": "text/html; charset=UTF-8",
+      ...authNoStoreHeaders
+    };
+
+    const buildSessionCookie = (token, maxAgeSeconds = SESSION_MAX_AGE_SECONDS) => {
+      const normalizedMaxAge = Number.isFinite(maxAgeSeconds) ? Math.max(0, Math.floor(maxAgeSeconds)) : 0;
+      const expiresAt = new Date(Date.now() + normalizedMaxAge * 1000).toUTCString();
+      const encodedToken = encodeURIComponent(String(token || ""));
+      return `session=${encodedToken}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${normalizedMaxAge}; Expires=${expiresAt}`;
+    };
+
+    const clearSessionCookie = () =>
+      "session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT";
+
     const parseCookie = (cookieHeader, name) => {
       if (!cookieHeader) return null;
       const cookies = cookieHeader.split(';').map(c => c.trim());
       for (const cookie of cookies) {
-        const [key, ...valueParts] = cookie.split('=');
+        const separatorIdx = cookie.indexOf('=');
+        if (separatorIdx < 0) continue;
+        const key = cookie.slice(0, separatorIdx).trim();
         if (key === name) {
-          return valueParts.join('=');
+          let value = cookie.slice(separatorIdx + 1).trim();
+          if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) {
+            value = value.slice(1, -1);
+          }
+          try {
+            return decodeURIComponent(value);
+          } catch (_) {
+            return value;
+          }
         }
       }
       return null;
@@ -205,9 +239,11 @@ export default {
       const [payload, sig] = parts;
       const payloadParts = payload.split('|');
       if (payloadParts.length !== 2) return false;
-      const timestamp = parseInt(payloadParts[0]);
+      const timestamp = parseInt(payloadParts[0], 10);
       const now = Date.now();
-      if (now - timestamp > 120 * 1000) return false;
+      if (!Number.isFinite(timestamp) || timestamp <= 0) return false;
+      if (timestamp > now + SESSION_FUTURE_SKEW_MS) return false;
+      if (now - timestamp > SESSION_MAX_AGE_SECONDS * 1000) return false;
       const encoder = new TextEncoder();
       const keyData = encoder.encode(config.linkSigningSecret);
       const key = await crypto.subtle.importKey(
@@ -283,6 +319,7 @@ export default {
     const cookieHeader = request.headers.get("Cookie") || "";
     const sessionToken = parseCookie(cookieHeader, "session");
     const isLoggedIn = sessionToken ? await verifySessionToken(sessionToken) : false;
+    const hasInvalidSessionCookie = !!sessionToken && !isLoggedIn;
 
     if (request.method === "POST" && url.pathname === "/login") {
       const formData = await request.formData();
@@ -292,29 +329,51 @@ export default {
           status: 302,
           headers: {
             "Location": "/",
-            "Set-Cookie": `session=${token}; HttpOnly; Secure; SameSite=Strict; Max-Age=120`
+            "Set-Cookie": buildSessionCookie(token, SESSION_MAX_AGE_SECONDS),
+            ...authNoStoreHeaders
           }
         });
       }
-      return new Response("Unauthorized", { status: 401 });
+      return new Response("Unauthorized", {
+        status: 401,
+        headers: {
+          ...authNoStoreHeaders,
+          "Set-Cookie": clearSessionCookie()
+        }
+      });
     }
 
-    const publicPaths = ["/pay", "/success", "/webhook", "/login", "/check", "/check-status"];
+    if (request.method === "GET" && url.pathname === "/logout") {
+      return new Response(null, {
+        status: 302,
+        headers: {
+          "Location": "/",
+          "Set-Cookie": clearSessionCookie(),
+          ...authNoStoreHeaders
+        }
+      });
+    }
+
+    const publicPaths = ["/pay", "/success", "/webhook", "/login", "/logout"];
     if (!isLoggedIn && !publicPaths.includes(url.pathname)) {
-      return new Response(getLoginHTML(config), { headers: { "Content-Type": "text/html; charset=UTF-8" } });
+      const headers = { ...authHtmlHeaders };
+      if (hasInvalidSessionCookie) {
+        headers["Set-Cookie"] = clearSessionCookie();
+      }
+      return new Response(getLoginHTML(config), { headers });
     }
 
     try {
       if (request.method === "GET" && url.pathname === "/") {
-        return new Response(getMenuHTML(config), { headers: { "Content-Type": "text/html; charset=UTF-8" } });
+        return new Response(getMenuHTML(config), { headers: authHtmlHeaders });
       }
 
       if (request.method === "GET" && url.pathname === "/create") {
-        return new Response(getTerminalHTML(config), { headers: { "Content-Type": "text/html; charset=UTF-8" } });
+        return new Response(getTerminalHTML(config), { headers: authHtmlHeaders });
       }
 
       if (request.method === "GET" && url.pathname === "/check") {
-        return new Response(getCheckHTML(config), { headers: { "Content-Type": "text/html; charset=UTF-8" } });
+        return new Response(getCheckHTML(config), { headers: authHtmlHeaders });
       }
 
       if (request.method === "POST" && url.pathname === "/check-status") {
@@ -323,14 +382,14 @@ export default {
 
         if (!inputId) {
           return new Response(getCheckHTML(config, "Please enter a Payment ID"), {
-            headers: { "Content-Type": "text/html; charset=UTF-8" }
+            headers: authHtmlHeaders
           });
         }
 
         // Validate that input is a number (Payment ID is integer)
         if (!/^\d+$/.test(inputId)) {
           return new Response(getCheckHTML(config, `Invalid ID format. Please enter the Payment ID (numbers only).<br>You can find it on your receipt.`), {
-            headers: { "Content-Type": "text/html; charset=UTF-8" }
+            headers: authHtmlHeaders
           });
         }
 
@@ -347,7 +406,7 @@ export default {
 
           if (!checkResponse.ok) {
             return new Response(getCheckHTML(config, `Payment not found. Please check the Payment ID and try again.`), {
-              headers: { "Content-Type": "text/html; charset=UTF-8" }
+              headers: authHtmlHeaders
             });
           }
 
@@ -365,12 +424,12 @@ export default {
           };
 
           return new Response(getCheckResultHTML(resultData, config), {
-            headers: { "Content-Type": "text/html; charset=UTF-8" }
+            headers: authHtmlHeaders
           });
 
         } catch (e) {
           return new Response(getCheckHTML(config, `Error checking payment: ${e.message}`), {
-            headers: { "Content-Type": "text/html; charset=UTF-8" }
+            headers: authHtmlHeaders
           });
         }
       }
@@ -408,7 +467,7 @@ export default {
         const shareTitle = buildPaymentTitle(config.name, titleOverride);
 
         return new Response(getSharePageHTML(amountBase, feeAmount, totalAmount, qrCodeUrl, subLink, config, shareTitle), {
-          headers: { "Content-Type": "text/html; charset=UTF-8" }
+          headers: authHtmlHeaders
         });
       }
 
@@ -884,6 +943,7 @@ const getHeadMeta = (config) => {
 };
 
 const STYLES = `:root { --bg: #000; --text: #fff; --sub: #555; --border: #222; } * { box-sizing: border-box; -webkit-font-smoothing: antialiased; } body { background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; margin:0; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; width:100vw; padding-bottom:60px; overflow-x:hidden; } body::-webkit-scrollbar { display: none; } body { -ms-overflow-style: none; scrollbar-width: none; } .container { width:100%; max-width:350px; display:flex; flex-direction:column; align-items:center; padding:20px; text-align:center; } input { background:transparent; border:none; border-bottom: 1px solid var(--border); color:var(--text); font-size:18px; width:100%; text-align:center; outline:none; padding:15px 0; margin-bottom:20px; border-radius:0; } input.amount { font-size:45px; margin-bottom:30px; } input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; } input[type=number]{ -moz-appearance:textfield; appearance:textfield; } button { width:100%; background:#fff; color:#000; border:none; padding:20px; border-radius:50px; font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:2px; cursor:pointer; margin-bottom:12px; } .receipt-card { width:100%; border:1px solid var(--border); padding:40px 20px; border-radius:30px; margin-bottom:30px; } .row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:15px; font-size:14px; color:var(--sub); gap:20px; } .val { color:#fff; font-weight:600; text-align:right; flex-shrink:0; max-width:60%; word-break:break-word; } .alert { position:fixed; top:20px; left:50%; transform:translateX(-50%); background:#fff; color:#000; padding:12px 25px; border-radius:50px; font-size:12px; font-weight:600; z-index:1000; animation:slideDown 0.3s ease; } @keyframes slideDown { from { opacity:0; transform:translateX(-50%) translateY(-20px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }`;
+const REFRESH_REAUTH_SCRIPT = `<script>(function(){try{const navEntries = performance.getEntriesByType ? performance.getEntriesByType("navigation") : [];const navType = navEntries && navEntries[0] ? navEntries[0].type : "";const legacyReload = performance.navigation && performance.navigation.type === 1;if (navType === "reload" || legacyReload) { window.location.replace("/logout"); }}catch(e){}})();</script>`;
 
 function getErrorHTML(msg, customAction, config) {
   // ✅ No Back Home button on error/expired pages
@@ -914,7 +974,7 @@ function getTerminalHTML(config) {
     ? `<div style="color:var(--sub); font-size:11px; margin-bottom:15px;">+${escapeHtml(config.serviceFeePercent.toString())}% service fee will be added</div>`
     : '';
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">${getHeadMeta(config)}<style>${STYLES}</style></head><body><div class="container"><div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">${escapeHtml(config.name)} POS Terminal</div>${feeHint}<form action="/generate" method="POST" style="width:100%"><input type="number" name="amount" class="amount" placeholder="0" required autofocus inputmode="decimal"><input type="text" name="title" placeholder="Payment Title (Optional)"><input type="text" name="name" placeholder="Client Name (Optional)"><input type="email" name="email" placeholder="Client Email (Optional)"><button type="submit">Create Request</button></form><a href="/" style="color:var(--sub); text-decoration:none; font-size:11px; margin-top:30px; text-transform:uppercase;">Back to Menu</a></div></body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">${getHeadMeta(config)}<style>${STYLES}</style></head><body><div class="container"><div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">${escapeHtml(config.name)} POS Terminal</div>${feeHint}<form action="/generate" method="POST" style="width:100%"><input type="number" name="amount" class="amount" placeholder="0" required autofocus inputmode="decimal"><input type="text" name="title" placeholder="Payment Title (Optional)"><input type="text" name="name" placeholder="Client Name (Optional)"><input type="email" name="email" placeholder="Client Email (Optional)"><button type="submit">Create Request</button></form><a href="/" style="color:var(--sub); text-decoration:none; font-size:11px; margin-top:30px; text-transform:uppercase;">Back to Menu</a></div>${REFRESH_REAUTH_SCRIPT}</body></html>`;
 }
 
 function getSharePageHTML(baseAmount, feeAmount, totalAmount, qrUrl, subLink, config, paymentTitle) {
@@ -931,7 +991,7 @@ function getSharePageHTML(baseAmount, feeAmount, totalAmount, qrUrl, subLink, co
        </div>`
     : '';
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES} .qr-box{background:#fff; padding:15px; border-radius:20px; margin-bottom:40px;} img{display:block; width:220px; height:220px;}</style></head><body><div class="container">${feeBreakdown}<div style="font-size:48px; font-weight:200; margin-bottom:40px;">${safeTotalAmount}</div><div class="qr-box"><img src="${qrUrl}"></div><button onclick="doShare()">Share Link</button><button style="background:transparent; color:#fff; border:1px solid var(--border); margin-top:10px;" onclick="doCopy()">Copy Link</button><a href="/" style="color:var(--sub); text-decoration:none; font-size:11px; margin-top:30px; text-transform:uppercase;">Cancel</a></div><script> function showAlert(msg) { const alert = document.createElement('div'); alert.className = 'alert'; alert.textContent = msg; document.body.appendChild(alert); setTimeout(() => alert.remove(), 2500); } function doShare(){ if(navigator.share){navigator.share({title:'${safeTitle}', url:'${safeLink}'});}else{doCopy();} } function doCopy(){ navigator.clipboard.writeText('${safeLink}'); showAlert('Link Copied!'); } </script></body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES} .qr-box{background:#fff; padding:15px; border-radius:20px; margin-bottom:40px;} img{display:block; width:220px; height:220px;}</style></head><body><div class="container">${feeBreakdown}<div style="font-size:48px; font-weight:200; margin-bottom:40px;">${safeTotalAmount}</div><div class="qr-box"><img src="${qrUrl}"></div><button onclick="doShare()">Share Link</button><button style="background:transparent; color:#fff; border:1px solid var(--border); margin-top:10px;" onclick="doCopy()">Copy Link</button><a href="/" style="color:var(--sub); text-decoration:none; font-size:11px; margin-top:30px; text-transform:uppercase;">Cancel</a></div><script> function showAlert(msg) { const alert = document.createElement('div'); alert.className = 'alert'; alert.textContent = msg; document.body.appendChild(alert); setTimeout(() => alert.remove(), 2500); } function doShare(){ if(navigator.share){navigator.share({title:'${safeTitle}', url:'${safeLink}'});}else{doCopy();} } function doCopy(){ navigator.clipboard.writeText('${safeLink}'); showAlert('Link Copied!'); } </script>${REFRESH_REAUTH_SCRIPT}</body></html>`;
 }
 
 function getMenuHTML(config) {
@@ -945,6 +1005,7 @@ function getMenuHTML(config) {
     <button type="button" onclick="location.href='/check'" style="background:transparent;color:#fff;border:1px solid var(--border);">Check</button>
   </div>
 </div>
+${REFRESH_REAUTH_SCRIPT}
 </body></html>`;
 }
 
@@ -963,6 +1024,7 @@ function getCheckHTML(config, error = null) {
   <div style="color:var(--sub);font-size:11px;margin-top:20px;">Enter the Payment ID from your receipt</div>
   <a href="/" style="color:var(--sub); text-decoration:none; font-size:11px; margin-top:30px; text-transform:uppercase;">Back to Menu</a>
 </div>
+${REFRESH_REAUTH_SCRIPT}
 </body></html>`;
 }
 
@@ -1012,6 +1074,7 @@ function getCheckResultHTML(data, config) {
   <button onclick="location.href='/check'">Check Another</button>
   <button style="background:transparent;color:#fff;border:1px solid var(--border);" onclick="location.href='/'">Back to Menu</button>
 </div>
+${REFRESH_REAUTH_SCRIPT}
 </body></html>`;
 }
 
