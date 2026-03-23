@@ -192,24 +192,24 @@ export default {
 
     const SETTINGS_COOKIE_NAME = "psettings";
 
-    const buildSettingsCookie = (settings, maxAgeSeconds = 60 * 60 * 24 * 365) => {
+    const buildSettingsCookie = async (settings, maxAgeSeconds = 60 * 60 * 24 * 365) => {
       const settingsData = {
         feeEnabled: settings?.feeEnabled === true,
         updatedAt: Date.now(),
       };
-      const encrypted = encryptPII(settingsData);
+      const encrypted = await encryptPII(settingsData);
       const expires = new Date(Date.now() + maxAgeSeconds * 1000).toUTCString();
       return `${SETTINGS_COOKIE_NAME}=${encodeURIComponent(encrypted)}; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAgeSeconds}; Expires=${expires}; Path=/`;
     };
 
-    const parseSettingsCookie = (cookieHeader) => {
+    const parseSettingsCookie = async (cookieHeader) => {
       const cookieValue = parseCookie(cookieHeader, SETTINGS_COOKIE_NAME);
       if (!cookieValue) {
         return { feeEnabled: false };
       }
       try {
         const decoded = decodeURIComponent(cookieValue);
-        const settings = decryptPII(decoded);
+        const settings = await decryptPII(decoded);
         return {
           feeEnabled: settings?.feeEnabled === true,
           updatedAt: settings?.updatedAt || null,
@@ -354,8 +354,8 @@ export default {
       const formData = await request.formData();
       if (formData.get("password") === config.terminalPassword) {
         const token = await generateSessionToken();
-        const settings = parseSettingsCookie(cookieHeader);
-        const settingsCookie = buildSettingsCookie(settings);
+        const settings = await parseSettingsCookie(cookieHeader);
+        const settingsCookie = await buildSettingsCookie(settings);
         return new Response("Logged In", {
           status: 302,
           headers: {
@@ -491,7 +491,7 @@ export default {
         }
 
         const newSettings = { feeEnabled };
-        const settingsCookie = buildSettingsCookie(newSettings);
+        const settingsCookie = await buildSettingsCookie(newSettings);
 
         return new Response(JSON.stringify({ ok: true, settings: newSettings }), {
           headers: { "Content-Type": "application/json", "Set-Cookie": settingsCookie, ...authNoStoreHeaders }
@@ -506,7 +506,7 @@ export default {
           });
         }
 
-        const settings = parseSettingsCookie(cookieHeader);
+        const settings = await parseSettingsCookie(cookieHeader);
         return new Response(JSON.stringify({ ok: true, settings }), {
           headers: { "Content-Type": "application/json", ...authNoStoreHeaders }
         });
@@ -524,7 +524,7 @@ export default {
         const timestamp = Date.now().toString();
 
         // ✅ Calculate amount with service fee based on settings
-        const settings = parseSettingsCookie(cookieHeader);
+        const settings = await parseSettingsCookie(cookieHeader);
         const feePercent = settings.feeEnabled === true ? config.serviceFeePercent : 0;
         const { baseAmount: amountBase, feeAmount, totalAmount } = calculateAmountWithFee(baseAmount, feePercent);
 
@@ -1168,18 +1168,18 @@ ${REFRESH_REAUTH_SCRIPT}</body></html>`;
 function getSharePageHTML(baseAmount, feeAmount, totalAmount, qrUrl, subLink, config, paymentTitle) {
   const safeTitle = (paymentTitle || "Payment").toString().replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   const safeLink = (subLink || "").toString().replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-  const safeBaseAmount = escapeHtml(baseAmount);
-  const safeFeeAmount = escapeHtml(feeAmount);
   const safeTotalAmount = escapeHtml(totalAmount);
+  const baseAmountNum = parseFloat(baseAmount) || 0;
+  const feeAmountNum = parseFloat(feeAmount) || 0;
+  const feeEnabled = feeAmountNum > 0;
+  const feePercent = feeEnabled && baseAmountNum > 0 ? (feeAmountNum / baseAmountNum) * 100 : 0;
+  const feePercentText = Number.isInteger(feePercent) ? feePercent.toString() : feePercent.toFixed(2).replace(/\.?0+$/, "");
 
-  // Build fee breakdown HTML if fee is greater than 0
-  const feeBreakdown = parseFloat(feeAmount) > 0
-    ? `<div style="color:var(--sub); font-size:13px; line-height:1.5; margin-bottom:12px;">
-         Base: ${safeBaseAmount} IQD + Fee: ${safeFeeAmount} IQD
-       </div>`
+  const feeNote = feeEnabled
+    ? `<div class="share-fee-note">Fees ${escapeHtml(feePercentText)}% added</div>`
     : '';
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES} .qr-box{background:#fff; padding:16px; border-radius:22px; margin:0 auto 28px; width:fit-content;} img{display:block; width:min(220px, 100%); height:auto; aspect-ratio:1/1;} </style></head><body><div class="container">${feeBreakdown}<div class="amount-display">${safeTotalAmount}</div><div class="qr-box"><img src="${qrUrl}"></div><button onclick="doShare()">Share Link</button><button class="secondary-btn" style="margin-top:12px;" onclick="doCopy()">Copy Link</button><a href="/" class="muted-link">Cancel</a></div><script> function showAlert(msg) { const alert = document.createElement('div'); alert.className = 'alert'; alert.textContent = msg; document.body.appendChild(alert); setTimeout(() => alert.remove(), 2500); } function doShare(){ if(navigator.share){navigator.share({title:'${safeTitle}', url:'${safeLink}'});}else{doCopy();} } function doCopy(){ navigator.clipboard.writeText('${safeLink}'); showAlert('Link Copied!'); } </script>${REFRESH_REAUTH_SCRIPT}</body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES} .share-fee-note{color:var(--sub);font-size:13px;line-height:1.5;margin:-12px 0 24px;}.qr-box{background:#fff;padding:14px;border-radius:22px;margin:0 auto 28px;width:min(252px,100%);aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;overflow:hidden;}.qr-box img{display:block;width:100%;height:100%;object-fit:contain;aspect-ratio:1/1;}</style></head><body><div class="container"><div class="amount-display">${safeTotalAmount}</div>${feeNote}<div class="qr-box"><img src="${qrUrl}" alt="Payment QR Code"></div><button onclick="doShare()">Share Link</button><button class="secondary-btn" style="margin-top:12px;" onclick="doCopy()">Copy Link</button><a href="/" class="muted-link">Cancel</a></div><script> function showAlert(msg) { const alert = document.createElement('div'); alert.className = 'alert'; alert.textContent = msg; document.body.appendChild(alert); setTimeout(() => alert.remove(), 2500); } function doShare(){ if(navigator.share){navigator.share({title:'${safeTitle}', url:'${safeLink}'});}else{doCopy();} } function doCopy(){ navigator.clipboard.writeText('${safeLink}'); showAlert('Link Copied!'); } </script>${REFRESH_REAUTH_SCRIPT}</body></html>`;
 }
 
 function getMenuHTML(config) {

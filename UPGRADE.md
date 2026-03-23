@@ -33,14 +33,14 @@ Use the v1.1.8 `index.js`, or port these changes:
 1. Add operator settings cookie helpers:
 ```javascript
 const SETTINGS_COOKIE_NAME = "psettings";
-const buildSettingsCookie = (settings, maxAgeSeconds = 60 * 60 * 24 * 365) => { /* ... */ };
-const parseSettingsCookie = (cookieHeader) => { /* ... */ };
+const buildSettingsCookie = async (settings, maxAgeSeconds = 60 * 60 * 24 * 365) => { /* ... */ };
+const parseSettingsCookie = async (cookieHeader) => { /* ... */ };
 ```
 
 2. Preserve and clear the settings cookie during auth flows:
 ```javascript
-const settings = parseSettingsCookie(cookieHeader);
-const settingsCookie = buildSettingsCookie(settings);
+const settings = await parseSettingsCookie(cookieHeader);
+const settingsCookie = await buildSettingsCookie(settings);
 // include settingsCookie on login
 // clear both session and settings cookies on logout
 ```
@@ -53,7 +53,7 @@ if (request.method === "POST" && url.pathname === "/settings") { /* ... */ }
 
 4. Apply the fee conditionally when generating payment requests:
 ```javascript
-const settings = parseSettingsCookie(cookieHeader);
+const settings = await parseSettingsCookie(cookieHeader);
 const feePercent = settings.feeEnabled === true ? config.serviceFeePercent : 0;
 const { baseAmount, feeAmount, totalAmount } = calculateAmountWithFee(baseAmount, feePercent);
 ```

@@ -262,7 +262,7 @@ SERVICE_FEE_PERCENTAGE = "1.5"  # 1.5% service fee
 - Customer enters base amount (e.g., `10000` IQD)
 - When the toggle is **ON**, the system calculates fee: `10000 * 1.5% = 150 IQD`
 - Total sent to gateway becomes `10000 + 150 = 10150 IQD`
-- Share page shows: "Base: 10000 IQD + Fee: 150 IQD" → "10150 IQD"
+- Share page keeps the total amount prominent and, when fees are active, shows a compact note such as `Fees 1.5% added`
 - When the toggle is **OFF**, the base amount is sent without any extra fee
 
 **Disable Service Fee**:
@@ -273,7 +273,7 @@ SERVICE_FEE_PERCENTAGE = "1.5"  # 1.5% service fee
 **Code Implementation**:
 ```javascript
 // From index.js - fee only applies when the operator toggle is enabled
-const settings = parseSettingsCookie(cookieHeader);
+const settings = await parseSettingsCookie(cookieHeader);
 const feePercent = settings.feeEnabled === true ? config.serviceFeePercent : 0;
 const { baseAmount, feeAmount, totalAmount } = calculateAmountWithFee(baseAmount, feePercent);
 ```

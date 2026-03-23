@@ -18,6 +18,7 @@ This file is a **quick index** of what changed between versions. For full detail
 * **Terminal UI refresh**:
   * Redesigned login, menu, create, share, check, receipt, and error screens
   * Added a dedicated Payment Gateway Fee toggle with clearer ON/OFF labels, `aria-pressed` state, and animated hint transitions
+  * Simplified the share page fee display so the total remains primary while active fees show a compact percentage note above the QR code
   * Improved spacing, typography, button hierarchy, and mobile-safe layout behavior
 
 ### Documentation & Release Metadata
