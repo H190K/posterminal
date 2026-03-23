@@ -25,6 +25,8 @@ This file is a **quick index** of what changed between versions. For full detail
 * **README.md**:
   * Documented the new fee-toggle workflow, `/settings` routes, and refreshed terminal UX
   * Corrected the testing override docs to match the current code path
+  * Added a maintenance note clarifying that the project is intentionally small in scope and already covers the core soft POS workflow
+  * Added a note that longer generated links are a deliberate stateless tradeoff to keep the project fully free without introducing a database, KV instance, or another persistence layer
 * **UPGRADE.md**:
   * Replaced the immediate upgrade guide with v1.1.7-1 to v1.1.8 instructions
 * **Environment templates**:

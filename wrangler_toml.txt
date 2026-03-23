@@ -23,10 +23,11 @@ MERCHANT_FAVICON = "https://via.placeholder.com/180x180/000000/FFFFFF/?text=POS"
 #
 # Required secrets to set:
 # - TERMINAL_PASSWORD (your dashboard login password)
-# - WEBHOOK_AUTH_SECRET (random string for webhook authentication)
-# - LINK_SIGNING_SECRET (random string for link signing and sessions)
+# - LINK_SIGNING_SECRET (random string for link, webhook, and session signatures)
 # - PII_ENCRYPTION_SECRET (random string for PII encryption)
 # - API_KEY (your SindiPay API key)
+# Optional / reserved:
+# - WEBHOOK_AUTH_SECRET (reserved for future/legacy webhook-secret separation)
 # - DISCORD_WEBHOOK_URL (optional, for transaction notifications)
 
 [build]

@@ -87,16 +87,17 @@ cd posterminal
 ```bash
 # Set required secrets
 npx wrangler secret put TERMINAL_PASSWORD
-npx wrangler secret put WEBHOOK_AUTH_SECRET
 npx wrangler secret put LINK_SIGNING_SECRET
 npx wrangler secret put PII_ENCRYPTION_SECRET
 npx wrangler secret put API_KEY
 
 # Set optional secrets
+npx wrangler secret put WEBHOOK_AUTH_SECRET
 npx wrangler secret put DISCORD_WEBHOOK_URL
 ```
 
 Use [.env.example](./.env.example) as the single reference template for all supported Worker environment variables and example values.
+Before running Wrangler commands, create your active config from the checked-in `wrangler_toml.txt` template by renaming or copying it to `wrangler.toml`.
 
 ### Step 4: Deploy
 
@@ -135,7 +136,7 @@ npx wrangler deploy
 * **SindiPay Integration** - Seamless integration with SindiPay payment gateway
 * **QR Code Generation** - Automatic QR code creation for easy mobile payments
 * **Real-time Verification** - Payment status verification directly with gateway API
-* **Order ID Tracking** - Custom POS order IDs (POS-xxxxx) for easy transaction tracking
+* **Order ID Tracking** - Custom POS order IDs in the `POS-xxxxxxxx` format for easy transaction tracking
 * **Operator-Controlled Service Fee** - Keep a configured `SERVICE_FEE_PERCENTAGE`, then turn it on or off per authenticated session from the terminal UI
 * **Multiple Currency Support** - Currently configured for IQD (Iraqi Dinar), easily adaptable
 
@@ -143,7 +144,7 @@ npx wrangler deploy
 
 * **Responsive Mobile-First UI** - Optimized for iOS and mobile devices with native-like experience
 * **Refreshed Terminal Workflow** - Updated login, menu, create, share, check, receipt, and error screens with cleaner spacing, clearer fee-toggle ON/OFF states, animated fee hints, and stronger mobile ergonomics
-* **PWA Ready** - Installable as a web app with custom icons and splash screens
+* **Home-Screen Friendly Metadata** - Includes favicon, Apple touch icon, and mobile web-app meta tags for a cleaner install/add-to-home-screen experience
 * **Dark Mode Design** - Modern dark theme optimized for OLED displays
 * **Digital Receipts** - Professional, brand-aware receipts:
   * **Arabic/RTL Support**: Native rendering for Arabic titles and customer names on receipts and Discord (avoids character reversal).
@@ -176,27 +177,27 @@ npx wrangler deploy
 
 ### ⚙️ Environment Variables
 
-Configure these in Cloudflare Workers as **Secrets** or in `wrangler.toml`. The canonical example file is [.env.example](./.env.example):
+Configure these in Cloudflare Workers as **Secrets** or in your Wrangler config. This repo currently ships the config template as `wrangler_toml.txt`, and the canonical env example file is [.env.example](./.env.example):
 
 ### Required Secrets
 
 | Variable Name | Description | Required | Example |
 |---------------|-------------|----------|---------|
 | `TERMINAL_PASSWORD` | Password for dashboard login | ✅ Yes | `your-secure-password-123` |
-| `WEBHOOK_AUTH_SECRET` | Webhook authentication and verification | ✅ Yes | `random-auth-secret-xyz789` |
-| `LINK_SIGNING_SECRET` | Link signature signing and session tokens | ✅ Yes | `random-link-secret-abc456` |
+| `LINK_SIGNING_SECRET` | Link, webhook, and session signature secret | ✅ Yes | `random-link-secret-abc456` |
 | `PII_ENCRYPTION_SECRET` | PII encryption for customer data | ✅ Yes | `random-encryption-secret-def123` |
 | `API_KEY` | Your SindiPay API key | ✅ Yes | `sp_live_xxxxxxxxxxxxxxxx` |
 
-### Optional Configuration
+### Optional Secrets & Configuration
 
 | Variable Name | Description | Required | Example |
 |---------------|-------------|----------|---------|
+| `WEBHOOK_AUTH_SECRET` | Reserved for future/legacy webhook-secret separation. The current code signs webhook URLs with `LINK_SIGNING_SECRET` | ⚪ Optional | `random-auth-secret-xyz789` |
+| `DISCORD_WEBHOOK_URL` | Discord webhook URL for notifications | ⚪ Optional | `https://discord.com/api/webhooks/...` |
 | `MERCHANT_NAME` | Your business/merchant name | ⚠️ Recommended | `My Shop` |
 | `MERCHANT_EMAIL` | Contact email for customer support | ⚠️ Recommended | `support@myshop.com` |
 | `MERCHANT_WHATSAPP` | WhatsApp number (with country code, no +) | ⚠️ Recommended | `1234567890` |
 | `MERCHANT_FAVICON` | URL to your favicon (192x192px or larger) | ⚪ Optional | `https://example.com/favicon.png` |
-| `DISCORD_WEBHOOK_URL` | Discord webhook URL for notifications | ⚪ Optional | `https://discord.com/api/webhooks/...` |
 | `SERVICE_FEE_PERCENTAGE` | Service fee percentage added to payments | ⚪ Optional | `1.5` |
 
 ### Setting up Environment Variables
@@ -206,16 +207,16 @@ Configure these in Cloudflare Workers as **Secrets** or in `wrangler.toml`. The 
 ```bash
 # Required secrets
 npx wrangler secret put TERMINAL_PASSWORD
-npx wrangler secret put WEBHOOK_AUTH_SECRET
 npx wrangler secret put LINK_SIGNING_SECRET
 npx wrangler secret put PII_ENCRYPTION_SECRET
 npx wrangler secret put API_KEY
 
 # Optional secrets
+npx wrangler secret put WEBHOOK_AUTH_SECRET
 npx wrangler secret put DISCORD_WEBHOOK_URL
 ```
 
-#### Using wrangler.toml (for non-sensitive config):
+#### Using Wrangler config (`wrangler_toml.txt` template / `wrangler.toml` in deployment):
 
 ```toml
 name = "my-pos-terminal"
@@ -249,7 +250,7 @@ npx wrangler secret put SERVICE_FEE_PERCENTAGE
 # Enter: 1.5 (for 1.5% fee)
 ```
 
-3. **Via wrangler.toml**:
+3. **Via Wrangler config**:
 ```toml
 [vars]
 SERVICE_FEE_PERCENTAGE = "1.5"  # 1.5% service fee
@@ -415,9 +416,10 @@ The architecture supports multiple gateways. To add another:
 
 ### 2. Menu Navigation
 
-The main menu provides two options:
+The main menu provides three actions:
 - **Create**: Navigate to the POS terminal to create payment links
 - **Check**: Look up payment status by Payment ID
+- **Logout**: Clear the current session and fee-toggle preference
 
 ### 3. Creating Payment Links
 
@@ -457,7 +459,8 @@ The main menu provides two options:
 Customers can access receipts using the encrypted URL format:
 ```
 https://your-worker.your-subdomain.workers.dev/success
-  ?oid=POS-12345
+  ?payment_id=PAYMENT_ID
+  &oid=POS-aB12Cd34
   &c=ENCRYPTED_DATA
   &time=1234567890123
   &ts=1234567890
@@ -472,8 +475,8 @@ These are optional **code constants** in `index.js` for local testing. They are 
 
 | Constant | Description | Default |
 |----------|-------------|---------|
-| `SINDIPAY_TLD_OVERRIDE` | Override the SindiPay TLD (for example `xyz` for testing) | `""` |
-| `SINDIPAY_API_KEY_OVERRIDE` | Override the API key for testing | `""` |
+| `SINDIPAY_TLD_OVERRIDE` | Override the SindiPay TLD (for example `xyz` for testing) | `.com` effective fallback |
+| `SINDIPAY_API_KEY_OVERRIDE` | Override the API key for testing | `API_KEY` effective fallback |
 
 ---
 
@@ -500,8 +503,8 @@ The system uses **multiple specialized secrets** for different security purposes
 
 | Secret | Purpose | Usage |
 |--------|---------|-------|
-| `WEBHOOK_AUTH_SECRET` | Webhook authentication and verification | Webhook route `/webhook` |
-| `LINK_SIGNING_SECRET` | Link signature signing and session tokens | Payment links `/generate`, `/success` |
+| `WEBHOOK_AUTH_SECRET` | Reserved for future/legacy webhook-secret separation | Currently not consumed by the current code path |
+| `LINK_SIGNING_SECRET` | Link, webhook, and session signatures | Payment links `/generate`, webhook signatures `/webhook`, receipt verification `/success`, and signed session tokens |
 | `PII_ENCRYPTION_SECRET` | PII encryption for customer data | Receipt privacy `/success` |
 | `TERMINAL_PASSWORD` | Dashboard authentication | Login route `/login` |
 | `API_KEY` | SindiPay API authentication | Gateway API calls |
@@ -540,7 +543,7 @@ The system uses **stateless encryption** to protect Customer PII (Personally Ide
 
 The system implements a **two-step verification** process for webhooks:
 
-1. **Signature Verification**: Validates the webhook signature using `WEBHOOK_AUTH_SECRET`
+1. **Signature Verification**: Validates the webhook signature using `LINK_SIGNING_SECRET`
 2. **Gateway Verification**: Verifies payment status directly with SindiPay API
 
 **Why This Matters:**
@@ -589,7 +592,7 @@ https://your-worker.your-subdomain.workers.dev/webhook?secret=RAW_SECRET_HERE&na
 
 **After (Secure)**:
 ```
-https://your-worker.your-subdomain.workers.dev/webhook?c=ENCRYPTED_TOKEN_HERE&time=1234567890&sig=HMAC_SIGNATURE
+https://your-worker.your-subdomain.workers.dev/webhook?c=ENCRYPTED_TOKEN_HERE&time=1234567890123&sig=HMAC_SIGNATURE
 ```
 
 ### Webhook Authentication Verification
@@ -597,12 +600,12 @@ https://your-worker.your-subdomain.workers.dev/webhook?c=ENCRYPTED_TOKEN_HERE&ti
 **Problem**: Webhooks could be forged if someone guessed the secret.
 
 **Solution**:
-- ✅ **Signature Verification**: All webhooks verify HMAC signatures using `WEBHOOK_AUTH_SECRET`
+- ✅ **Signature Verification**: All webhooks verify HMAC signatures using `LINK_SIGNING_SECRET`
 - ✅ **Gateway Verification**: System always checks payment status with SindiPay API
 - ✅ **Silent Rejection**: Invalid webhooks return "OK" but don't process
 
 **Verification Flow**:
-1. Verify webhook signature using `WEBHOOK_AUTH_SECRET`
+1. Verify webhook signature using `LINK_SIGNING_SECRET`
 2. If signature invalid, return "OK" (no error response)
 3. If signature valid, fetch payment status from SindiPay API
 4. Only send Discord notifications after successful gateway verification.
@@ -618,7 +621,7 @@ https://your-worker.your-subdomain.workers.dev/webhook
 **Where**:
 - `c` = Base64url-encoded encrypted customer data (name, email, title)
 - `time` = Unix timestamp in milliseconds
-- `sig` = HMAC-SHA256 signature using `WEBHOOK_AUTH_SECRET`
+- `sig` = HMAC-SHA256 signature using `LINK_SIGNING_SECRET`
 
 ### Discord Webhook Configuration
 
@@ -631,12 +634,11 @@ When setting up Discord webhooks:
 
 ### Webhook Testing
 
-Test your webhook using this curl command:
+Test your webhook using a signed webhook URL that includes `c`, `time`, and `sig` query parameters:
 
 ```bash
-curl -X POST https://your-worker.your-subdomain.workers.dev/webhook \
+curl -X POST "https://your-worker.your-subdomain.workers.dev/webhook?c=ENCRYPTED_CUSTOMER_DATA&time=1234567890123&sig=WEBHOOK_SIGNATURE" \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: your-sindipay-api-key" \
   -d '{
     "id": "payment_id_here",
     "status": "PAID",
@@ -652,9 +654,9 @@ curl -X POST https://your-worker.your-subdomain.workers.dev/webhook \
 
 | Route | Method | Description | Auth Required |
 |-------|--------|-------------|---------------|
-| `/` | GET | Main menu with Create/Check options | ✅ Yes |
+| `/` | GET | Main menu with Create, Check, and Logout actions | ✅ Yes |
 | `/login` | POST | Authentication endpoint | ❌ No |
-| `/logout` | GET | Clears session cookie and redirects to login/menu | ❌ No |
+| `/logout` | GET | Clears session and settings cookies, then redirects to login/menu | ❌ No |
 | `/settings` | GET | Returns the current authenticated operator settings | ✅ Yes |
 | `/settings` | POST | Updates authenticated operator settings such as the fee toggle | ✅ Yes |
 | `/create` | GET | POS Terminal for creating payment links | ✅ Yes |
@@ -673,7 +675,7 @@ curl -X POST https://your-worker.your-subdomain.workers.dev/webhook \
 
 **Webhook Not Working**:
 - Check that your SindiPay webhook URL doesn't include `?secret=` parameters
-- Verify `WEBHOOK_AUTH_SECRET` is set correctly
+- Verify `LINK_SIGNING_SECRET` is set correctly
 - Test with curl using the example above
 
 **Login Issues**:
@@ -692,12 +694,7 @@ curl -X POST https://your-worker.your-subdomain.workers.dev/webhook \
 
 ### Debug Mode
 
-Enable debug logging by adding these to your wrangler.toml:
-
-```toml
-[env.development]
-vars = { DEBUG = "true" }
-```
+The current code does not implement a dedicated `DEBUG` flag. For local debugging, use `npx wrangler dev` and inspect request/output directly, or use Wrangler tailing in deployed environments.
 
 ### Environment Variables Reference
 
@@ -706,8 +703,8 @@ All supported Worker environment variables and their purposes are also listed in
 | Variable | Type | Required | Purpose |
 |----------|------|----------|---------|
 | `TERMINAL_PASSWORD` | Secret | ✅ | Dashboard authentication |
-| `WEBHOOK_AUTH_SECRET` | Secret | ✅ | Webhook signature verification |
-| `LINK_SIGNING_SECRET` | Secret | ✅ | Link signing and session tokens |
+| `WEBHOOK_AUTH_SECRET` | Secret | ⚪ | Reserved / currently unused by the current code path |
+| `LINK_SIGNING_SECRET` | Secret | ✅ | Link, webhook, and session signatures |
 | `PII_ENCRYPTION_SECRET` | Secret | ✅ | PII encryption for customer data |
 | `API_KEY` | Secret | ✅ | SindiPay API authentication |
 | `MERCHANT_NAME` | Config | ⚠️ | Business name |
@@ -730,24 +727,21 @@ We welcome contributions! Please see our contributing guidelines for details.
 git clone https://github.com/h190k/posterminal.git
 cd posterminal
 
-# Install dependencies
-npm install
+# Create the active Wrangler config from the checked-in template
+# (rename/copy wrangler_toml.txt to wrangler.toml)
 
-# Run locally
+# Run locally with Wrangler
 npx wrangler dev
 ```
 
 ### Testing
 
 ```bash
-# Run tests
-npm test
+# Syntax check
+node --check index.js
 
-# Run linting
-npm run lint
-
-# Run type checking
-npm run typecheck
+# Run the worker locally
+npx wrangler dev
 ```
 
 ---
@@ -792,6 +786,12 @@ If my projects make your life easier, consider supporting development. Your supp
 ## 📝 Updates
 
 For any updates, changes, and version history, please see [CHANGELOG.md](CHANGELOG.md).
+
+This project is intentionally small and focused. The current build already covers the core soft POS workflow it was designed for, and with the current SindiPay integration scope there are no obvious major features left that feel relevant to add by default.
+
+I am also aware that the generated links are longer than ideal, but that is currently the most practical tradeoff for keeping the project fully stateless and free to run, without introducing a database, Cloudflare KV, or another persistence layer just to store transaction context.
+
+Future updates will most likely be driven by practical needs, new capabilities exposed by SindiPay, or strong community input through GitHub issues and pull requests.
 
 ---
 
