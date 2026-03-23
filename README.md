@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-v1.1.7--1-blue?style=for-the-badge)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v1.1.8-blue?style=for-the-badge)](CHANGELOG.md)
 <a href="https://developers.cloudflare.com/workers/"><img src="https://img.shields.io/badge/Cloudflare-Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" /></a> <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript"><img src="https://img.shields.io/badge/JavaScript-ES2023-yellow?style=for-the-badge&logo=javascript&logoColor=white" /></a> <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-Runtime-339933?style=for-the-badge&logo=node.js&logoColor=Yellow" /></a> <a href="https://sindipay.com/en/"><img src="https://img.shields.io/badge/Payments-SindiPay-0052cc?style=for-the-badge&logo=creditcard&logoColor=white" /></a> <a href="https://discord.com/"><img src="https://img.shields.io/badge/Notifications-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" /></a>
 
 </div>
@@ -16,7 +16,7 @@ We integrate with [SindiPay](https://sindipay.com/en/) to provide robust payment
 > This repo may use **`sindipay.xyz`** in code examples for **testing/sandbox** purposes.
 > For **production/live payments**, you should switch back to **`sindipay.com`**.
 
-> **Upgrading from a previous version?** See [UPGRADE.md](UPGRADE.md) for step-by-step migration instructions.
+> **Upgrading from `v1.1.7-1` to `v1.1.8`?** See [UPGRADE.md](UPGRADE.md) for step-by-step migration instructions.
 
 ---
 
@@ -96,6 +96,8 @@ npx wrangler secret put API_KEY
 npx wrangler secret put DISCORD_WEBHOOK_URL
 ```
 
+Use [.env.example](./.env.example) as the single reference template for all supported Worker environment variables and example values.
+
 ### Step 4: Deploy
 
 ```bash
@@ -116,6 +118,7 @@ npx wrangler deploy
 * **Receipt URL Privacy** - Receipt URLs can be **sanitized** (no customer name/email in the browser URL), while still displaying them on the receipt page
 * **Split Secret Architecture** - Separate secrets for different security purposes (authentication, signing, encryption)
 * **Session Security** - Signed session tokens with short expiration and HMAC verification
+* **Encrypted Operator Settings** - The service-fee preference is stored in an encrypted `HttpOnly` cookie and cleared on logout
 * **Auth Cache Hardening** - Protected terminal HTML responses use `no-store/no-cache` headers with `Vary: Cookie` to reduce stale auth state artifacts
 * **Webhook Verification** - Verifies payment status with SindiPay gateway before sending Discord notifications
 * **Mention Protection** - Discord webhook prevents @everyone/@here abuse with allowed_mentions
@@ -133,11 +136,13 @@ npx wrangler deploy
 * **QR Code Generation** - Automatic QR code creation for easy mobile payments
 * **Real-time Verification** - Payment status verification directly with gateway API
 * **Order ID Tracking** - Custom POS order IDs (POS-xxxxx) for easy transaction tracking
+* **Operator-Controlled Service Fee** - Keep a configured `SERVICE_FEE_PERCENTAGE`, then turn it on or off per authenticated session from the terminal UI
 * **Multiple Currency Support** - Currently configured for IQD (Iraqi Dinar), easily adaptable
 
 ### 📱 User Experience
 
 * **Responsive Mobile-First UI** - Optimized for iOS and mobile devices with native-like experience
+* **Refreshed Terminal Workflow** - Updated login, menu, create, share, check, receipt, and error screens with cleaner spacing, clearer fee-toggle ON/OFF states, animated fee hints, and stronger mobile ergonomics
 * **PWA Ready** - Installable as a web app with custom icons and splash screens
 * **Dark Mode Design** - Modern dark theme optimized for OLED displays
 * **Digital Receipts** - Professional, brand-aware receipts:
@@ -171,7 +176,7 @@ npx wrangler deploy
 
 ### ⚙️ Environment Variables
 
-Configure these in Cloudflare Workers as **Secrets** or in `wrangler.toml`:
+Configure these in Cloudflare Workers as **Secrets** or in `wrangler.toml`. The canonical example file is [.env.example](./.env.example):
 
 ### Required Secrets
 
@@ -229,7 +234,7 @@ SERVICE_FEE_PERCENTAGE = "1.5"  # 1.5% service fee, set to "0" for no fee
 
 ### 💰 Service Fee Configuration
 
-**Overview**: The terminal supports adding a service fee percentage to payment amounts. This fee is automatically calculated and added to the base amount before sending to the payment gateway.
+**Overview**: The terminal supports a configurable service fee percentage, but it is now **operator-controlled**. The configured percentage is only applied when the authenticated operator enables the **Payment Gateway Fee** toggle on the create-payment screen.
 
 **Configuration Options**:
 
@@ -251,29 +256,25 @@ SERVICE_FEE_PERCENTAGE = "1.5"  # 1.5% service fee
 ```
 
 **How It Works**:
-- Customer enters base amount (e.g., 10000 IQD)
-- System calculates fee: `10000 * 1.5% = 150 IQD`
-- Total sent to gateway: `10000 + 150 = 10150 IQD`
+- Operator configures a percentage once with `SERVICE_FEE_PERCENTAGE`
+- Operator enables or disables the fee from the terminal before creating a payment link
+- Customer enters base amount (e.g., `10000` IQD)
+- When the toggle is **ON**, the system calculates fee: `10000 * 1.5% = 150 IQD`
+- Total sent to gateway becomes `10000 + 150 = 10150 IQD`
 - Share page shows: "Base: 10000 IQD + Fee: 150 IQD" → "10150 IQD"
-- Terminal shows hint: "+1.5% service fee will be added"
+- When the toggle is **OFF**, the base amount is sent without any extra fee
 
 **Disable Service Fee**:
-- Set to `0` or leave empty to disable service fees
-- All amounts will be processed without additional fees
+- Set `SERVICE_FEE_PERCENTAGE` to `0` or leave it empty to disable fee support entirely
+- Leave the terminal toggle **OFF** to process a payment without any additional fee
+- Logging out clears the saved toggle state, so operators must re-enable it after the next login if they want fees applied again
 
 **Code Implementation**:
 ```javascript
-// From index.js - Service fee calculation
-const calculateAmountWithFee = (amount, feePercent) => {
-  const base = parseFloat(amount) || 0;
-  const feePercentNum = parseFloat(feePercent) || 0;
-  if (feePercentNum <= 0) {
-    return { baseAmount: base, feeAmount: 0, totalAmount: base };
-  }
-  const fee = base * (feePercentNum / 100);
-  const total = base + fee;
-  return { baseAmount: base, feeAmount: fee, totalAmount: total };
-};
+// From index.js - fee only applies when the operator toggle is enabled
+const settings = parseSettingsCookie(cookieHeader);
+const feePercent = settings.feeEnabled === true ? config.serviceFeePercent : 0;
+const { baseAmount, feeAmount, totalAmount } = calculateAmountWithFee(baseAmount, feePercent);
 ```
 
 ---
@@ -301,7 +302,7 @@ const iconUrl = config.favicon;  // This is the favicon URL
 
 * **Branding Support** - Unified `config` object manages merchant name, email, WhatsApp, and favicon. 
 * **Payment Title Override** - Default payment title format is `${PAYMENT_TITLE_OVERRIDE} - ${MERCHANT}`. Users can type custom titles in terminal for personalized payment names.
-* **Smart Overrides**: Support for `SINDIPAY_TLD_OVERRIDE` and `SINDIPAY_API_KEY_OVERRIDE` for safe local testing without modifying secrets. 
+* **Code-Level Test Overrides**: `SINDIPAY_TLD_OVERRIDE` and `SINDIPAY_API_KEY_OVERRIDE` remain optional constants in `index.js` for local testing. 
 * **Email Integration** - Optional client-side email receipt functionality. 
 * **WhatsApp Integration** - Direct support link using the `MERCHANT_WHATSAPP` number. 
 
@@ -344,11 +345,11 @@ const TIME_RECEIPT  = 48 * 60 * 60 * 1000; // 48 hours
 
 ### Switch SindiPay domain (test vs production)
 
-**Using Environment Variable (Recommended)**:
-```bash
-# Set in your environment or wrangler.toml
-SINDIPAY_TLD_OVERRIDE="xyz"  # For sindipay.xyz (testing)
-# or leave empty for sindipay.com (production)
+**Using Code Constants**:
+```javascript
+// index.js
+const SINDIPAY_TLD_OVERRIDE = "xyz"; // uses sindipay.xyz for testing
+const SINDIPAY_API_KEY_OVERRIDE = ""; // optional test key
 ```
 
 **Manual Search and Replace**:
@@ -421,13 +422,14 @@ The main menu provides two options:
 ### 3. Creating Payment Links
 
 1. Click "Create" from the main menu
-2. Enter payment amount (IQD)
-3. (Optional) Enter payment title
-4. (Optional) Enter customer name and email
-5. Click "Create Request"
-6. Share the QR code or link with your customer
+2. Use the **Payment Gateway Fee** toggle if you want to add the configured fee percentage to this payment
+3. Enter payment amount (IQD)
+4. (Optional) Enter payment title
+5. (Optional) Enter customer name and email
+6. Click "Create Request"
+7. Share the QR code or link with your customer
 
-**Note**: If service fee is configured, a hint will show the fee percentage (e.g., "+1.5% service fee will be added")
+**Note**: The fee toggle state is loaded from an encrypted settings cookie while you are logged in, exposes clearer `ON` and `OFF` labels with `aria-pressed`, uses animated fee-hint transitions, and is cleared on logout.
 
 ### 4. Checking Payment Status
 
@@ -466,11 +468,11 @@ https://your-worker.your-subdomain.workers.dev/success
 
 ### 7. Developer Overrides (Optional)
 
-These variables can be used for local testing or to override production settings without changing secrets:
+These are optional **code constants** in `index.js` for local testing. They are not part of the Worker `env` object, so they are intentionally not included in `.env.example`.
 
-| Variable | Description | Default |
+| Constant | Description | Default |
 |----------|-------------|---------|
-| `SINDIPAY_TLD_OVERRIDE` | Override the SindiPay TLD (e.g., `xyz` for testing) | `.com` |
+| `SINDIPAY_TLD_OVERRIDE` | Override the SindiPay TLD (for example `xyz` for testing) | `""` |
 | `SINDIPAY_API_KEY_OVERRIDE` | Override the API key for testing | `""` |
 
 ---
@@ -653,6 +655,8 @@ curl -X POST https://your-worker.your-subdomain.workers.dev/webhook \
 | `/` | GET | Main menu with Create/Check options | ✅ Yes |
 | `/login` | POST | Authentication endpoint | ❌ No |
 | `/logout` | GET | Clears session cookie and redirects to login/menu | ❌ No |
+| `/settings` | GET | Returns the current authenticated operator settings | ✅ Yes |
+| `/settings` | POST | Updates authenticated operator settings such as the fee toggle | ✅ Yes |
 | `/create` | GET | POS Terminal for creating payment links | ✅ Yes |
 | `/check` | GET | Payment status check form | ✅ Yes |
 | `/check-status` | POST | Query payment status by Payment ID | ✅ Yes |
@@ -697,7 +701,7 @@ vars = { DEBUG = "true" }
 
 ### Environment Variables Reference
 
-All environment variables and their purposes:
+All supported Worker environment variables and their purposes are also listed in [.env.example](./.env.example):
 
 | Variable | Type | Required | Purpose |
 |----------|------|----------|---------|

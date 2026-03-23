@@ -190,6 +190,35 @@ export default {
     const clearSessionCookie = () =>
       "session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT";
 
+    const SETTINGS_COOKIE_NAME = "psettings";
+
+    const buildSettingsCookie = (settings, maxAgeSeconds = 60 * 60 * 24 * 365) => {
+      const settingsData = {
+        feeEnabled: settings?.feeEnabled === true,
+        updatedAt: Date.now(),
+      };
+      const encrypted = encryptPII(settingsData);
+      const expires = new Date(Date.now() + maxAgeSeconds * 1000).toUTCString();
+      return `${SETTINGS_COOKIE_NAME}=${encodeURIComponent(encrypted)}; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAgeSeconds}; Expires=${expires}; Path=/`;
+    };
+
+    const parseSettingsCookie = (cookieHeader) => {
+      const cookieValue = parseCookie(cookieHeader, SETTINGS_COOKIE_NAME);
+      if (!cookieValue) {
+        return { feeEnabled: false };
+      }
+      try {
+        const decoded = decodeURIComponent(cookieValue);
+        const settings = decryptPII(decoded);
+        return {
+          feeEnabled: settings?.feeEnabled === true,
+          updatedAt: settings?.updatedAt || null,
+        };
+      } catch {
+        return { feeEnabled: false };
+      }
+    };
+
     const parseCookie = (cookieHeader, name) => {
       if (!cookieHeader) return null;
       const cookies = cookieHeader.split(';').map(c => c.trim());
@@ -325,11 +354,13 @@ export default {
       const formData = await request.formData();
       if (formData.get("password") === config.terminalPassword) {
         const token = await generateSessionToken();
+        const settings = parseSettingsCookie(cookieHeader);
+        const settingsCookie = buildSettingsCookie(settings);
         return new Response("Logged In", {
           status: 302,
           headers: {
             "Location": "/",
-            "Set-Cookie": buildSessionCookie(token, SESSION_MAX_AGE_SECONDS),
+            "Set-Cookie": `${buildSessionCookie(token, SESSION_MAX_AGE_SECONDS)}, ${settingsCookie}`,
             ...authNoStoreHeaders
           }
         });
@@ -344,11 +375,12 @@ export default {
     }
 
     if (request.method === "GET" && url.pathname === "/logout") {
+      const clearSettingsCookie = `${SETTINGS_COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/`;
       return new Response(null, {
         status: 302,
         headers: {
           "Location": "/",
-          "Set-Cookie": clearSessionCookie(),
+          "Set-Cookie": `${clearSessionCookie()}, ${clearSettingsCookie}`,
           ...authNoStoreHeaders
         }
       });
@@ -435,6 +467,52 @@ export default {
       }
 
       // ------------------------------------------------------------
+      // ✅ Settings API (GET/POST for fee toggle)
+      // ------------------------------------------------------------
+      if (request.method === "POST" && url.pathname === "/settings") {
+        if (!isLoggedIn) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json", ...authNoStoreHeaders }
+          });
+        }
+
+        let body = {};
+        try {
+          body = await request.json();
+        } catch (_) {}
+
+        const feeEnabled = body.feeEnabled;
+        if (feeEnabled !== true && feeEnabled !== false) {
+          return new Response(JSON.stringify({ error: "Invalid settings. feeEnabled must be a boolean." }), {
+            status: 400,
+            headers: { "Content-Type": "application/json", ...authNoStoreHeaders }
+          });
+        }
+
+        const newSettings = { feeEnabled };
+        const settingsCookie = buildSettingsCookie(newSettings);
+
+        return new Response(JSON.stringify({ ok: true, settings: newSettings }), {
+          headers: { "Content-Type": "application/json", "Set-Cookie": settingsCookie, ...authNoStoreHeaders }
+        });
+      }
+
+      if (request.method === "GET" && url.pathname === "/settings") {
+        if (!isLoggedIn) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json", ...authNoStoreHeaders }
+          });
+        }
+
+        const settings = parseSettingsCookie(cookieHeader);
+        return new Response(JSON.stringify({ ok: true, settings }), {
+          headers: { "Content-Type": "application/json", ...authNoStoreHeaders }
+        });
+      }
+
+      // ------------------------------------------------------------
       // ✅ UPDATE: Payment title field + sanitized link using c=
       // ------------------------------------------------------------
       if (request.method === "POST" && url.pathname === "/generate") {
@@ -445,8 +523,10 @@ export default {
         const email = formData.get("email") || "";
         const timestamp = Date.now().toString();
 
-        // ✅ Calculate amount with service fee
-        const { baseAmount: amountBase, feeAmount, totalAmount } = calculateAmountWithFee(baseAmount, config.serviceFeePercent);
+        // ✅ Calculate amount with service fee based on settings
+        const settings = parseSettingsCookie(cookieHeader);
+        const feePercent = settings.feeEnabled === true ? config.serviceFeePercent : 0;
+        const { baseAmount: amountBase, feeAmount, totalAmount } = calculateAmountWithFee(baseAmount, feePercent);
 
         // Put PII + optional title + base amount + fee info in c=
         const cPay = await encryptPII({ name, email, title: titleOverride, baseAmount: amountBase.toString(), feeAmount: feeAmount.toString() });
@@ -942,7 +1022,7 @@ const getHeadMeta = (config) => {
 `.trim();
 };
 
-const STYLES = `:root { --bg: #000; --text: #fff; --sub: #555; --border: #222; } * { box-sizing: border-box; -webkit-font-smoothing: antialiased; } body { background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; margin:0; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; width:100vw; padding-bottom:60px; overflow-x:hidden; } body::-webkit-scrollbar { display: none; } body { -ms-overflow-style: none; scrollbar-width: none; } .container { width:100%; max-width:350px; display:flex; flex-direction:column; align-items:center; padding:20px; text-align:center; } input { background:transparent; border:none; border-bottom: 1px solid var(--border); color:var(--text); font-size:18px; width:100%; text-align:center; outline:none; padding:15px 0; margin-bottom:20px; border-radius:0; } input.amount { font-size:45px; margin-bottom:30px; } input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; } input[type=number]{ -moz-appearance:textfield; appearance:textfield; } button { width:100%; background:#fff; color:#000; border:none; padding:20px; border-radius:50px; font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:2px; cursor:pointer; margin-bottom:12px; } .receipt-card { width:100%; border:1px solid var(--border); padding:40px 20px; border-radius:30px; margin-bottom:30px; } .row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:15px; font-size:14px; color:var(--sub); gap:20px; } .val { color:#fff; font-weight:600; text-align:right; flex-shrink:0; max-width:60%; word-break:break-word; } .alert { position:fixed; top:20px; left:50%; transform:translateX(-50%); background:#fff; color:#000; padding:12px 25px; border-radius:50px; font-size:12px; font-weight:600; z-index:1000; animation:slideDown 0.3s ease; } @keyframes slideDown { from { opacity:0; transform:translateX(-50%) translateY(-20px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }`;
+const STYLES = `:root { --bg: #000; --text: #fff; --sub: #8c8c8c; --border: #222; --panel: #111; --danger: #ff5b5b; --success: #52c15a; } * { box-sizing: border-box; -webkit-font-smoothing: antialiased; } html { width:100%; } body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin:0; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; min-height:100vh; width:100%; padding:24px 16px calc(56px + env(safe-area-inset-bottom, 0px)); overflow-x:hidden; line-height:1.45; } body::-webkit-scrollbar { display: none; } body { -ms-overflow-style: none; scrollbar-width: none; } .container { width:100%; max-width:420px; display:flex; flex-direction:column; align-items:stretch; padding:24px 4px 0; text-align:center; margin:auto 0; } form { width:100%; display:flex; flex-direction:column; gap:14px; } input { background:transparent; border:none; border-bottom: 1px solid var(--border); color:var(--text); font-size:16px; width:100%; text-align:center; outline:none; padding:16px 4px 14px; margin:0; border-radius:0; line-height:1.3; } input::placeholder { color:#6d6d6d; } input.amount { font-size:clamp(42px, 12vw, 56px); font-weight:300; letter-spacing:-0.04em; padding-top:12px; padding-bottom:18px; } input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; } input[type=number]{ -moz-appearance:textfield; appearance:textfield; } button { width:100%; background:#fff; color:#000; border:none; min-height:56px; padding:16px 20px; border-radius:999px; font-size:12px; line-height:1.2; font-weight:800; text-transform:uppercase; letter-spacing:1.8px; cursor:pointer; margin:0; } a { color:inherit; } .eyebrow { font-size:11px; letter-spacing:5px; color:var(--sub); margin-bottom:22px; text-transform:uppercase; line-height:1.5; } .helper-text { color:var(--sub); font-size:12px; line-height:1.5; margin-top:18px; } .muted-link { color:var(--sub); text-decoration:none; font-size:11px; margin-top:26px; text-transform:uppercase; letter-spacing:2.2px; display:inline-flex; justify-content:center; width:100%; } .secondary-btn { background:transparent; color:#fff; border:1px solid var(--border); } .tertiary-btn { background:transparent; color:var(--sub); border:none; font-size:11px; letter-spacing:2.2px; min-height:auto; padding:10px 0 0; } .error-message { color:var(--danger); font-size:12px; line-height:1.5; margin-bottom:4px; } .amount-display { font-size:clamp(32px, 10vw, 48px); font-weight:300; letter-spacing:-0.03em; margin-bottom:28px; line-height:1.1; } .receipt-card { width:100%; border:1px solid var(--border); padding:32px 22px; border-radius:30px; margin-bottom:22px; } .row { display:flex; justify-content:space-between; align-items:flex-start; padding:12px 0; font-size:14px; color:var(--sub); gap:16px; text-align:left; } .row > span:first-child { flex:1; min-width:0; } .row + .row { border-top:1px solid rgba(255,255,255,0.04); } .val { color:#fff; font-weight:600; text-align:right; flex:0 1 62%; max-width:62%; overflow-wrap:anywhere; word-break:break-word; line-height:1.45; } .alert { position:fixed; top:20px; left:50%; transform:translateX(-50%); background:#fff; color:#000; padding:12px 25px; border-radius:50px; font-size:12px; font-weight:600; z-index:1000; animation:slideDown 0.3s ease; } @media (max-width: 420px) { body { padding-left:14px; padding-right:14px; } .container { padding-top:18px; } .receipt-card { padding:28px 18px; } .row { gap:12px; } .val { max-width:58%; flex-basis:58%; } .eyebrow { letter-spacing:4px; } } @keyframes slideDown { from { opacity:0; transform:translateX(-50%) translateY(-20px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }`;
 const REFRESH_REAUTH_SCRIPT = `<script>(function(){try{const navEntries = performance.getEntriesByType ? performance.getEntriesByType("navigation") : [];const navType = navEntries && navEntries[0] ? navEntries[0].type : "";const legacyReload = performance.navigation && performance.navigation.type === 1;if (navType === "reload" || legacyReload) { window.location.replace("/logout"); }}catch(e){}})();</script>`;
 
 function getErrorHTML(msg, customAction, config) {
@@ -958,7 +1038,7 @@ function getErrorHTML(msg, customAction, config) {
   </head><body>
     <div class="container">
       <div style="font-size:40px;margin-bottom:20px;">⚠️</div>
-      <p style="color:var(--sub);">${msg}</p>
+      <p style="color:var(--sub); line-height:1.6; margin:0;">${msg}</p>
       <br>
       ${action}
     </div>
@@ -966,15 +1046,123 @@ function getErrorHTML(msg, customAction, config) {
 }
 
 function getLoginHTML(config) {
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">${getHeadMeta(config)}<style>${STYLES}</style></head><body><div class="container"><div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">${escapeHtml(config.name)} Auth</div><form action="/login" method="POST" style="width:100%"><input type="password" name="password" placeholder="Key" required autofocus><button type="submit">Unlock</button></form></div></body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">${getHeadMeta(config)}<style>${STYLES}</style></head><body><div class="container"><div class="eyebrow">${escapeHtml(config.name)} Auth</div><form action="/login" method="POST"><input type="password" name="password" placeholder="Key" required autofocus><button type="submit">Unlock</button></form></div></body></html>`;
 }
 
 function getTerminalHTML(config) {
-  const feeHint = config.serviceFeePercent > 0
-    ? `<div style="color:var(--sub); font-size:11px; margin-bottom:15px;">+${escapeHtml(config.serviceFeePercent.toString())}% service fee will be added</div>`
-    : '';
+  const feePercent = config.serviceFeePercent;
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">${getHeadMeta(config)}<style>${STYLES}</style></head><body><div class="container"><div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">${escapeHtml(config.name)} POS Terminal</div>${feeHint}<form action="/generate" method="POST" style="width:100%"><input type="number" name="amount" class="amount" placeholder="0" required autofocus inputmode="decimal"><input type="text" name="title" placeholder="Payment Title (Optional)"><input type="text" name="name" placeholder="Client Name (Optional)"><input type="email" name="email" placeholder="Client Email (Optional)"><button type="submit">Create Request</button></form><a href="/" style="color:var(--sub); text-decoration:none; font-size:11px; margin-top:30px; text-transform:uppercase;">Back to Menu</a></div>${REFRESH_REAUTH_SCRIPT}</body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">${getHeadMeta(config)}<style>${STYLES}
+.fee-toggle-wrapper { margin-bottom: 24px; padding: 18px 18px 16px; background: #121212; border-radius: 20px; border: 1px solid #262626; text-align: left; }
+.fee-toggle-row { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
+.fee-toggle-copy { flex: 1; min-width: 0; }
+.fee-toggle-label { font-size: 14px; color: var(--text); font-weight: 700; line-height: 1.35; }
+.fee-toggle-subtitle { color: #6f6f6f; font-size: 12px; line-height: 1.4; margin-top: 4px; }
+.fee-toggle-btn { position: relative; width: 96px; height: 42px; min-height: 42px; background: #2a2a2a; border: none; border-radius: 999px; cursor: pointer; padding: 0; transition: background 0.36s cubic-bezier(0.22, 1, 0.36, 1); flex-shrink: 0; overflow: hidden; }
+.fee-toggle-btn.enabled { background: var(--success); }
+.fee-toggle-slider { position: absolute; top: 5px; left: 5px; width: 32px; height: 32px; background: #f2f2f2; border-radius: 50%; transition: transform 0.36s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.36s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.24); z-index: 2; }
+.fee-toggle-btn.enabled .fee-toggle-slider { transform: translateX(54px); box-shadow: 0 6px 14px rgba(0,0,0,0.2); }
+.fee-toggle-text { position: absolute; top: 50%; z-index: 1; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; pointer-events: none; transition: opacity 0.36s cubic-bezier(0.22, 1, 0.36, 1), transform 0.36s cubic-bezier(0.22, 1, 0.36, 1), color 0.36s ease; }
+.fee-toggle-text-on { left: 15px; color: rgba(255,255,255,0.96); opacity: 0; transform: translateY(-50%) translateX(-4px); }
+.fee-toggle-text-off { right: 14px; color: #9a9a9a; opacity: 1; transform: translateY(-50%) translateX(0); }
+.fee-toggle-btn.enabled .fee-toggle-text-on { opacity: 1; transform: translateY(-50%) translateX(0); }
+.fee-toggle-btn.enabled .fee-toggle-text-off { opacity: 0; transform: translateY(-50%) translateX(4px); }
+.fee-toggle-hint { font-size: 12px; color: var(--sub); margin-top: 14px; text-align: left; line-height: 1.4; opacity: 1; transform: translateY(0); filter: blur(0); transition: opacity 0.42s cubic-bezier(0.22, 1, 0.36, 1), transform 0.42s cubic-bezier(0.22, 1, 0.36, 1), filter 0.42s cubic-bezier(0.22, 1, 0.36, 1); will-change: opacity, transform, filter; }
+.fee-toggle-hint.is-switching { opacity: 0; transform: translateY(8px); filter: blur(6px); }
+</style></head><body>
+<div class="container">
+<div class="eyebrow">${escapeHtml(config.name)} POS Terminal</div>
+<div class="fee-toggle-wrapper">
+  <div class="fee-toggle-row">
+    <div class="fee-toggle-copy">
+      <div class="fee-toggle-label">Payment Gateway Fee</div>
+      <div class="fee-toggle-subtitle">Add ${feePercent}% to payment requests</div>
+    </div>
+    <button type="button" id="fee-toggle-btn" class="fee-toggle-btn" aria-label="Toggle payment gateway fee" aria-pressed="false">
+      <span class="fee-toggle-text fee-toggle-text-on">ON</span>
+      <span class="fee-toggle-text fee-toggle-text-off">OFF</span>
+      <span class="fee-toggle-slider"></span>
+    </button>
+  </div>
+  <div class="fee-toggle-hint" id="fee-hint">No additional fee</div>
+</div>
+<form action="/generate" method="POST" id="payment-form">
+  <input type="number" name="amount" class="amount" placeholder="0" required autofocus inputmode="decimal">
+  <input type="text" name="title" placeholder="Payment Title (Optional)">
+  <input type="text" name="name" placeholder="Client Name (Optional)">
+  <input type="email" name="email" placeholder="Client Email (Optional)">
+  <button type="submit">Create Request</button>
+</form>
+<a href="/" class="muted-link">Back to Menu</a>
+</div>
+<script>
+(async function() {
+  const feeToggleBtn = document.getElementById('fee-toggle-btn');
+  const feeHint = document.getElementById('fee-hint');
+  const feePercent = ${feePercent};
+  let hintTimer;
+
+  async function loadSettings() {
+    try {
+      const res = await fetch('/settings');
+      const data = await res.json();
+      if (data.ok) {
+        updateUI(data.settings.feeEnabled);
+      }
+    } catch (e) {}
+  }
+
+  function animateHint(nextText, animate) {
+    window.clearTimeout(hintTimer);
+
+    if (!animate) {
+      feeHint.textContent = nextText;
+      feeHint.classList.remove('is-switching');
+      return;
+    }
+
+    feeHint.classList.add('is-switching');
+    hintTimer = window.setTimeout(function() {
+      feeHint.textContent = nextText;
+      requestAnimationFrame(function() {
+        feeHint.classList.remove('is-switching');
+      });
+    }, 150);
+  }
+
+  function updateUI(feeEnabled, animate) {
+    feeToggleBtn.setAttribute('aria-pressed', feeEnabled ? 'true' : 'false');
+    if (feeEnabled) {
+      feeToggleBtn.classList.add('enabled');
+      animateHint('+' + feePercent + '% service fee will be added', animate);
+    } else {
+      feeToggleBtn.classList.remove('enabled');
+      animateHint('No additional fee', animate);
+    }
+  }
+
+  feeToggleBtn.addEventListener('click', async function(e) {
+    e.preventDefault();
+    const currentState = feeToggleBtn.classList.contains('enabled');
+    const newFeeEnabled = !currentState;
+
+    try {
+      const res = await fetch('/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ feeEnabled: newFeeEnabled })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        updateUI(data.settings.feeEnabled, true);
+      }
+    } catch (e) {}
+  });
+
+  await loadSettings();
+})();
+</script>
+${REFRESH_REAUTH_SCRIPT}</body></html>`;
 }
 
 function getSharePageHTML(baseAmount, feeAmount, totalAmount, qrUrl, subLink, config, paymentTitle) {
@@ -986,43 +1174,44 @@ function getSharePageHTML(baseAmount, feeAmount, totalAmount, qrUrl, subLink, co
 
   // Build fee breakdown HTML if fee is greater than 0
   const feeBreakdown = parseFloat(feeAmount) > 0
-    ? `<div style="color:var(--sub); font-size:14px; margin-bottom:10px;">
+    ? `<div style="color:var(--sub); font-size:13px; line-height:1.5; margin-bottom:12px;">
          Base: ${safeBaseAmount} IQD + Fee: ${safeFeeAmount} IQD
        </div>`
     : '';
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES} .qr-box{background:#fff; padding:15px; border-radius:20px; margin-bottom:40px;} img{display:block; width:220px; height:220px;}</style></head><body><div class="container">${feeBreakdown}<div style="font-size:48px; font-weight:200; margin-bottom:40px;">${safeTotalAmount}</div><div class="qr-box"><img src="${qrUrl}"></div><button onclick="doShare()">Share Link</button><button style="background:transparent; color:#fff; border:1px solid var(--border); margin-top:10px;" onclick="doCopy()">Copy Link</button><a href="/" style="color:var(--sub); text-decoration:none; font-size:11px; margin-top:30px; text-transform:uppercase;">Cancel</a></div><script> function showAlert(msg) { const alert = document.createElement('div'); alert.className = 'alert'; alert.textContent = msg; document.body.appendChild(alert); setTimeout(() => alert.remove(), 2500); } function doShare(){ if(navigator.share){navigator.share({title:'${safeTitle}', url:'${safeLink}'});}else{doCopy();} } function doCopy(){ navigator.clipboard.writeText('${safeLink}'); showAlert('Link Copied!'); } </script>${REFRESH_REAUTH_SCRIPT}</body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES} .qr-box{background:#fff; padding:16px; border-radius:22px; margin:0 auto 28px; width:fit-content;} img{display:block; width:min(220px, 100%); height:auto; aspect-ratio:1/1;} </style></head><body><div class="container">${feeBreakdown}<div class="amount-display">${safeTotalAmount}</div><div class="qr-box"><img src="${qrUrl}"></div><button onclick="doShare()">Share Link</button><button class="secondary-btn" style="margin-top:12px;" onclick="doCopy()">Copy Link</button><a href="/" class="muted-link">Cancel</a></div><script> function showAlert(msg) { const alert = document.createElement('div'); alert.className = 'alert'; alert.textContent = msg; document.body.appendChild(alert); setTimeout(() => alert.remove(), 2500); } function doShare(){ if(navigator.share){navigator.share({title:'${safeTitle}', url:'${safeLink}'});}else{doCopy();} } function doCopy(){ navigator.clipboard.writeText('${safeLink}'); showAlert('Link Copied!'); } </script>${REFRESH_REAUTH_SCRIPT}</body></html>`;
 }
 
 function getMenuHTML(config) {
   return `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">${getHeadMeta(config)}<style>${STYLES} .menu-buttons{display:flex;gap:15px;width:100%;} .menu-buttons button{flex:1;}</style></head>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">${getHeadMeta(config)}<style>${STYLES} .menu-buttons{display:flex;gap:12px;width:100%;} .menu-buttons button{flex:1;} @media (max-width:420px){ .menu-buttons{flex-direction:column;} }</style></head>
 <body>
 <div class="container">
-  <div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:40px;text-transform:uppercase;">${escapeHtml(config.name)} Terminal</div>
+  <div class="eyebrow" style="margin-bottom:30px;">${escapeHtml(config.name)} Terminal</div>
   <div class="menu-buttons">
     <button type="button" onclick="location.href='/create'">Create</button>
-    <button type="button" onclick="location.href='/check'" style="background:transparent;color:#fff;border:1px solid var(--border);">Check</button>
+    <button type="button" class="secondary-btn" onclick="location.href='/check'">Check</button>
   </div>
+  <button type="button" class="tertiary-btn" style="margin-top:48px;" onclick="location.href='/logout'">Logout</button>
 </div>
 ${REFRESH_REAUTH_SCRIPT}
 </body></html>`;
 }
 
 function getCheckHTML(config, error = null) {
-  const errorMsg = error ? `<div style="color:#ff4444;font-size:12px;margin-bottom:20px;">${escapeHtml(error)}</div>` : '';
+  const errorMsg = error ? `<div class="error-message">${escapeHtml(error)}</div>` : '';
   return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">${getHeadMeta(config)}<style>${STYLES}</style></head>
 <body>
 <div class="container">
-  <div style="font-size:11px;letter-spacing:4px;color:var(--sub);margin-bottom:20px;text-transform:uppercase;">Check Payment</div>
+  <div class="eyebrow">Check Payment</div>
   ${errorMsg}
-  <form action="/check-status" method="POST" style="width:100%">
+  <form action="/check-status" method="POST">
     <input type="number" name="id" placeholder="Payment ID" required autofocus inputmode="numeric">
     <button type="submit">Check Status</button>
   </form>
-  <div style="color:var(--sub);font-size:11px;margin-top:20px;">Enter the Payment ID from your receipt</div>
-  <a href="/" style="color:var(--sub); text-decoration:none; font-size:11px; margin-top:30px; text-transform:uppercase;">Back to Menu</a>
+  <div class="helper-text">Enter the Payment ID from your receipt</div>
+  <a href="/" class="muted-link">Back to Menu</a>
 </div>
 ${REFRESH_REAUTH_SCRIPT}
 </body></html>`;
@@ -1058,11 +1247,11 @@ function getCheckResultHTML(data, config) {
   const paymentIdRow = data.payment_id ? `<div class="row"><span>Payment ID</span><span class="val" style="font-size:12px;word-break:break-all;">${escapeHtml(data.payment_id)}</span></div>` : "";
 
   return `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES}.check-result{max-width:420px;margin:0 auto;}.check-result .row span:first-child{min-width:80px;}.check-result .val{max-width:280px;}</style></head>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES}.check-result{max-width:420px;margin:0 auto;}.check-result .row span:first-child{min-width:88px;}.check-result .val{max-width:280px;}</style></head>
 <body>
 <div class="container check-result">
   <div style="font-size:48px;margin-bottom:10px;color:${color}">${icon}</div>
-  <div style="font-size:32px;margin-bottom:30px;font-weight:200;">${escapeHtml(data.amount || "0")} IQD</div>
+  <div class="amount-display">${escapeHtml(data.amount || "0")} IQD</div>
   ${titleRow}
   ${nameRow}
   ${emailRow}
@@ -1070,9 +1259,9 @@ function getCheckResultHTML(data, config) {
   ${paymentIdRow}
   ${dateRow}
   <div class="row"><span>Status</span><span class="val" style="color:${color}">${escapeHtml(String(data.status || "").toUpperCase())}</span></div>
-  <div style="margin-top:40px;"></div>
+  <div style="height:22px;"></div>
   <button onclick="location.href='/check'">Check Another</button>
-  <button style="background:transparent;color:#fff;border:1px solid var(--border);" onclick="location.href='/'">Back to Menu</button>
+  <button class="secondary-btn" style="margin-top:12px;" onclick="location.href='/'">Back to Menu</button>
 </div>
 ${REFRESH_REAUTH_SCRIPT}
 </body></html>`;
@@ -1114,7 +1303,7 @@ function getConfirmationHTML(id, amt, status, userName, userEmail, timestamp, co
     ? `<div class="row"><span>Date & Time<br>(GMT+3)</span><span class="val" style="font-size:11px;">${escapeHtml(dateStr)}</span></div>`
     : "";
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES}</style></head><body> <canvas id="receiptCanvas" style="display:none;"></canvas> <div class="container"> <div class="receipt-card" id="receiptCard"> <div style="font-size:60px;margin-bottom:20px;color:${color}">${icon}</div> ${titleRow} ${nameRow} ${emailRow} <div class="row"><span>Amount</span><span class="val">${escapeHtml(amt)} IQD</span></div> <div class="row"><span>Order ID</span><span class="val">${escapeHtml(id)}</span></div> ${paymentIdRow} ${timestampRow} <div class="row"><span>Status</span><span class="val" style="color:${color}">${escapeHtml(String(status).toUpperCase())}</span></div> <div style="margin-top:30px;padding-top:20px;border-top:1px solid var(--border);color:var(--sub);font-size:12px;font-weight:600;">Merchant ${escapeHtml(merchantName)}</div> </div> ${merchantEmail ? `<button onclick="sendEmail()">Email Receipt</button>` : ""} <button style="background:transparent; color:#fff; border:1px solid var(--border);" onclick="shareGeneral()">Share Receipt</button> </div> <script>
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${getHeadMeta(config)}<style>${STYLES}</style></head><body> <canvas id="receiptCanvas" style="display:none;"></canvas> <div class="container"> <div class="receipt-card" id="receiptCard"> <div style="font-size:60px;margin-bottom:20px;color:${color}">${icon}</div> ${titleRow} ${nameRow} ${emailRow} <div class="row"><span>Amount</span><span class="val">${escapeHtml(amt)} IQD</span></div> <div class="row"><span>Order ID</span><span class="val">${escapeHtml(id)}</span></div> ${paymentIdRow} ${timestampRow} <div class="row"><span>Status</span><span class="val" style="color:${color}">${escapeHtml(String(status).toUpperCase())}</span></div> <div style="margin-top:24px;padding-top:18px;border-top:1px solid var(--border);color:var(--sub);font-size:12px;font-weight:600;line-height:1.5;">Merchant ${escapeHtml(merchantName)}</div> </div> ${merchantEmail ? `<button onclick="sendEmail()">Email Receipt</button>` : ""} <button class="secondary-btn" ${merchantEmail ? `style="margin-top:12px;"` : ""} onclick="shareGeneral()">Share Receipt</button> </div> <script>
   const receiptData = {
     title: ${JSON.stringify(String(receiptTitle || ""))},
     id: ${JSON.stringify(String(id || ""))},

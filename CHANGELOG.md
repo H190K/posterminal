@@ -2,7 +2,40 @@
 
 This file is a **quick index** of what changed between versions. For full details, see **README.md**.
 
-> **Upgrading from a previous version?** See [UPGRADE.md](UPGRADE.md) for step-by-step migration instructions.
+> **Upgrading from `v1.1.7-1` to `v1.1.8`?** See [UPGRADE.md](UPGRADE.md) for step-by-step migration instructions.
+
+---
+
+## v1.1.8 (23.03.2026)
+
+### Fee Toggle & Terminal Refresh
+
+* **Operator-controlled service fees**:
+  * Added authenticated `GET /settings` and `POST /settings` routes
+  * Added encrypted `psettings` cookie to persist the fee toggle state
+  * Payment requests now apply `SERVICE_FEE_PERCENTAGE` only when the operator enables the fee toggle
+  * Login preserves the existing fee toggle state, while logout clears both session and settings cookies
+* **Terminal UI refresh**:
+  * Redesigned login, menu, create, share, check, receipt, and error screens
+  * Added a dedicated Payment Gateway Fee toggle with clearer ON/OFF labels, `aria-pressed` state, and animated hint transitions
+  * Improved spacing, typography, button hierarchy, and mobile-safe layout behavior
+
+### Documentation & Release Metadata
+
+* **README.md**:
+  * Documented the new fee-toggle workflow, `/settings` routes, and refreshed terminal UX
+  * Corrected the testing override docs to match the current code path
+* **UPGRADE.md**:
+  * Replaced the immediate upgrade guide with v1.1.7-1 to v1.1.8 instructions
+* **Environment templates**:
+  * Kept `.env.example` as the single canonical env template
+  * Removed the outdated duplicate `env_example.txt`
+* **Release metadata**:
+  * Updated the README badge and `package_json.json` version to `1.1.8`
+
+### Validation
+
+* `node --check index.js` passes
 
 ---
 

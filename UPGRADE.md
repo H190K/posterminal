@@ -1,97 +1,83 @@
 # Upgrade Guide
 
-> **Important**: This guide tracks the immediate upgrade path only.
+> **Important**: This guide only covers the immediate upgrade path from `v1.1.7-1` to `v1.1.8`.
 
 ---
 
-## Upgrading from v1.1.7 to v1.1.7-1
+## Upgrading from v1.1.7-1 to v1.1.8
 
 ### Overview
 
-v1.1.7-1 focuses on **zero-trust session stability** for terminal auth:
+v1.1.8 focuses on **operator-controlled fee handling** and a broader **terminal UI refresh**:
 
-1. Strict 2-minute session TTL is centralized and consistently enforced
-2. Protected terminal pages are cache-guarded to reduce stale auth artifacts
-3. Browser refresh on protected terminal pages forces re-authentication
-4. `/check` and `/check-status` are now authenticated terminal routes
+1. Service fees are now applied only when the operator enables the fee toggle
+2. The fee toggle state is stored in an encrypted `psettings` cookie
+3. New authenticated `/settings` routes expose and update that operator preference
+4. Login preserves the current preference, while logout clears it
+5. Terminal screens were refreshed across login, menu, create, share, check, receipt, and error flows
 
 ### Breaking Changes
 
-These are intentional auth behavior changes:
+There are no schema or secret changes, but there is an important behavior change:
 
-1. `GET /check` now requires a valid terminal session
-2. `POST /check-status` now requires a valid terminal session
-3. Refreshing protected terminal pages logs out via `/logout` and requires login again
+1. A configured `SERVICE_FEE_PERCENTAGE` is no longer applied automatically to every request
+2. Operators must explicitly enable the fee toggle before generating links that should include the fee
+3. Logging out clears the saved fee preference, so the toggle must be enabled again after the next login
 
 ### Migration Steps
 
 #### Step 1: Update Code
 
-Use the v1.1.7-1 `index.js`, or port these changes:
+Use the v1.1.8 `index.js`, or port these changes:
 
-1. Add session constants:
+1. Add operator settings cookie helpers:
 ```javascript
-const SESSION_MAX_AGE_SECONDS = 120;
-const SESSION_FUTURE_SKEW_MS = 60 * 1000;
+const SETTINGS_COOKIE_NAME = "psettings";
+const buildSettingsCookie = (settings, maxAgeSeconds = 60 * 60 * 24 * 365) => { /* ... */ };
+const parseSettingsCookie = (cookieHeader) => { /* ... */ };
 ```
 
-2. Add auth header helpers:
+2. Preserve and clear the settings cookie during auth flows:
 ```javascript
-const authNoStoreHeaders = {
-  "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-  "Pragma": "no-cache",
-  "Expires": "0",
-  "Vary": "Cookie"
-};
-const authHtmlHeaders = {
-  "Content-Type": "text/html; charset=UTF-8",
-  ...authNoStoreHeaders
-};
+const settings = parseSettingsCookie(cookieHeader);
+const settingsCookie = buildSettingsCookie(settings);
+// include settingsCookie on login
+// clear both session and settings cookies on logout
 ```
 
-3. Add cookie helpers and use them for login/logout/invalid-session cleanup:
+3. Add authenticated settings routes:
 ```javascript
-const buildSessionCookie = (token, maxAgeSeconds = SESSION_MAX_AGE_SECONDS) => { /* ... */ };
-const clearSessionCookie = () => "session=; ...; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT";
+if (request.method === "GET" && url.pathname === "/settings") { /* ... */ }
+if (request.method === "POST" && url.pathname === "/settings") { /* ... */ }
 ```
 
-4. Harden `parseCookie()` and `verifySessionToken()`:
-   - Support quoted + URL-decoded cookie values
-   - Reject invalid/far-future timestamps
-   - Use `SESSION_MAX_AGE_SECONDS` in TTL check
-
-5. Add a public logout route:
+4. Apply the fee conditionally when generating payment requests:
 ```javascript
-if (request.method === "GET" && url.pathname === "/logout") {
-  return new Response(null, {
-    status: 302,
-    headers: {
-      "Location": "/",
-      "Set-Cookie": clearSessionCookie(),
-      ...authNoStoreHeaders
-    }
-  });
-}
+const settings = parseSettingsCookie(cookieHeader);
+const feePercent = settings.feeEnabled === true ? config.serviceFeePercent : 0;
+const { baseAmount, feeAmount, totalAmount } = calculateAmountWithFee(baseAmount, feePercent);
 ```
 
-6. Update route access rules:
+5. Update the terminal UI to surface the fee toggle with clearer `ON` and `OFF` states, `aria-pressed`, animated hint transitions, and refreshed layout styles:
 ```javascript
-const publicPaths = ["/pay", "/success", "/webhook", "/login", "/logout"];
+// getTerminalHTML()
+// STYLES
+// refreshed menu/check/share/receipt templates
 ```
 
-7. Apply `authHtmlHeaders` to protected terminal HTML responses:
-   - `/`
-   - `/create`
-   - `/check`
-   - `/check-status` HTML responses
-   - `/generate` HTML response (share page)
+#### Step 2: Review Fee Workflow
 
-8. Add refresh-triggered re-auth script on protected terminal pages:
-```javascript
-const REFRESH_REAUTH_SCRIPT = `<script>(function(){/* redirect reload to /logout */})();</script>`;
-```
+1. Keep `SERVICE_FEE_PERCENTAGE` configured if you still want fee support
+2. Train operators to enable the fee toggle before creating requests that should include the fee
+3. If your workflow requires fees to be on by default, customize the default returned by `parseSettingsCookie()`
 
-#### Step 2: Deploy
+#### Step 3: Refresh Documentation and Env Templates
+
+1. Keep `.env.example` as the only canonical env example file
+2. Remove any local references to `env_example.txt`
+3. Treat `SINDIPAY_TLD_OVERRIDE` and `SINDIPAY_API_KEY_OVERRIDE` as code-level test constants in `index.js`, not Worker env vars
+
+#### Step 4: Deploy
 
 ```bash
 npx wrangler deploy
@@ -99,19 +85,16 @@ npx wrangler deploy
 
 ### Verification Checklist
 
-1. Login works and sets a 2-minute session cookie
-2. Invalid/expired session cookie is cleared and login page is shown
-3. Refreshing `/`, `/create`, `/check`, or share/check terminal pages redirects to `/logout`
-4. `/check` and `/check-status` cannot be used without login
-5. Protected HTML responses include:
-   - `Cache-Control: no-store, no-cache, must-revalidate, max-age=0`
-   - `Pragma: no-cache`
-   - `Expires: 0`
-   - `Vary: Cookie`
+1. Login still works and preserves the existing fee toggle state
+2. Logout clears both the `session` and `psettings` cookies
+3. `GET /settings` returns the current authenticated fee state
+4. `POST /settings` updates the fee state and persists it in the encrypted cookie
+5. Payment generation includes the configured fee only when the toggle is enabled
+6. Terminal, share, check, and receipt screens render correctly on mobile layouts, including the clearer fee-toggle ON/OFF state and hint animation
 
 ### Rollback
 
-If you need v1.1.7 behavior:
+If you need v1.1.7-1 behavior:
 
 1. Restore the previous `index.js`
 2. Redeploy with `npx wrangler deploy`

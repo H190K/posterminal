@@ -1,6 +1,6 @@
 {
   "name": "cloudflare-pos-terminal",
-  "version": "1.1.7",
+  "version": "1.1.8",
   "description": "Serverless POS Terminal built on Cloudflare Workers with SindiPay integration",
   "main": "index.js",
   "scripts": {
