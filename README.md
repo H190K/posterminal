@@ -80,7 +80,7 @@ cd posterminal
 
 1. **Cloudflare Account**: [Sign up](https://dash.cloudflare.com/sign-up/workers)
 2. **Wrangler CLI**: Install with `npm install -g wrangler`
-3. **SindiPay Account**: [Get your API key](https://sindipay.com/dashboard)
+3. **SindiPay Account**: [Get your API key](https://sindipay.com)
 
 ### Step 3: Configure Environment Variables
 
